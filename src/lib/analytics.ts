@@ -49,7 +49,8 @@ let cachedSummary: DashboardSummary | null = null
 function loadRawData(): SalesRecord[] {
   if (cachedData) return cachedData
 
-  const filePath = path.join(process.cwd(), "public", "data", "df_ventas_v4.csv")
+  // src/data/ is NOT served as a static web asset (unlike public/)
+  const filePath = path.join(process.cwd(), "src", "data", "df_ventas_v4.csv")
   const fileContent = fs.readFileSync(filePath, "utf-8")
 
   const result = Papa.parse(fileContent, {
@@ -90,7 +91,7 @@ function loadRawData(): SalesRecord[] {
     ticket_total: parseFloat(row.ticket_total) || 0,
     forma_cobro_principal: row.forma_cobro_principal || "",
     rango_precio: row.rango_precio || "",
-    año: parseInt(row["año"] || row["a\xc3\xb1o"] || row["aÃ±o"] || "0") || 0,
+    año: parseInt(row["año"] || row["a\xc3\xb1o"] || row["aÃ±o"] || row["anio"] || "0") || 0,
     mes: parseInt(row.mes) || 0,
     semana: parseInt(row.semana) || 0,
     dia_semana: parseInt(row.dia_semana) || 0,
