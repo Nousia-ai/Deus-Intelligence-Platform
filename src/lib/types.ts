@@ -120,6 +120,16 @@ export type MonthCategoryMatrix = Record<string, Record<string, number>>
 export type BranchMonthCategoryMatrix = Record<string, Record<string, Record<string, number>>>
 // {sucursal_id: {"2025-1": {categoria: units}}}
 export type BranchMonthCategoryUnitsMatrix = Record<string, Record<string, Record<string, number>>>
+// ── Producto distribution matrices (physical branches only) ──────────────────
+// {sucursal_id: {"2025-1": {familia_color: {rev, units}}}}
+export type BranchMonthColorFamilyMatrix = Record<string, Record<string, Record<string, { rev: number; units: number }>>>
+// {sucursal_id: {"2025-1": {color: {rev, units}}}}
+export type BranchMonthColorMatrix = Record<string, Record<string, Record<string, { rev: number; units: number }>>>
+// {sucursal_id: {"2025-1": {tipo_talla: {talla: {rev, units}}}}}
+export type BranchMonthSizeMatrix = Record<string, Record<string, Record<string, Record<string, { rev: number; units: number }>>>>
+// {sucursal_id: {"2025-1": {categoria: {tipo_producto: {rev, units}}}}}
+export type BranchMonthProductTypeMatrix = Record<string, Record<string, Record<string, Record<string, { rev: number; units: number }>>>>
+
 // {sucursal_id: {"2025-1": {discount KPI numerators}}}
 export type DiscountMonthMatrix = Record<string, Record<string, {
   revConDesc: number
@@ -235,6 +245,12 @@ export interface DashboardSummary {
   branchYearMatrix: BranchYearMatrix
   monthCategoryMatrix: MonthCategoryMatrix
   discountMonthMatrix: DiscountMonthMatrix
+  // Producto distribution matrices (physical branches, filter-compatible)
+  branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix
+  branchMonthColorMatrix: BranchMonthColorMatrix
+  branchMonthSizeMatrix: BranchMonthSizeMatrix
+  branchMonthProductTypeMatrix: BranchMonthProductTypeMatrix
+  colorFamilyMap: Record<string, string>  // color → familia_color
   // Monthly data per branch for drill-down
   branchMonthlyRevenue: Record<string, MonthlyRevenue[]>
   // Physical-branch-only totals (same scope as FilterContext's filteredRevenue)

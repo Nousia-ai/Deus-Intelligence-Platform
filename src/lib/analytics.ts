@@ -17,6 +17,10 @@ import type {
   BranchYearMatrix,
   MonthCategoryMatrix,
   DiscountMonthMatrix,
+  BranchMonthColorFamilyMatrix,
+  BranchMonthColorMatrix,
+  BranchMonthSizeMatrix,
+  BranchMonthProductTypeMatrix,
   BrandMetrics as BrandMetricType,
   SKUMetrics,
   LFLBranch,
@@ -254,6 +258,12 @@ export function computeDashboardSummary(): DashboardSummary {
   const branchMonthCategoryMatrix: BranchMonthCategoryMatrix = {}
   // Branch × Month × Category: {sucursal_id: {"2025-1": {categoria: units}}}  — for filter-aware uds display
   const branchMonthCategoryUnitsMatrix: BranchMonthCategoryUnitsMatrix = {}
+  // ── Producto distribution matrices (physical branches only) ──────────────
+  const branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix = {}
+  const branchMonthColorMatrix: BranchMonthColorMatrix = {}
+  const branchMonthSizeMatrix: BranchMonthSizeMatrix = {}
+  const branchMonthProductTypeMatrix: BranchMonthProductTypeMatrix = {}
+  const colorFamilyMap: Record<string, string> = {}
 
   for (const r of rev) {
     if (!r.año || !r.mes) continue
@@ -279,6 +289,51 @@ export function computeDashboardSummary(): DashboardSummary {
     if (!branchMonthCategoryUnitsMatrix[r.sucursal_id][key]) branchMonthCategoryUnitsMatrix[r.sucursal_id][key] = {}
     branchMonthCategoryUnitsMatrix[r.sucursal_id][key][cat] =
       (branchMonthCategoryUnitsMatrix[r.sucursal_id][key][cat] || 0) + r.unidades
+
+    // ── Product distributions — physical branches only ──────────────────────
+    if (!PHYSICAL_BRANCHES.includes(r.sucursal_id)) continue
+
+    // Color family map (static lookup)
+    if (r.color && r.familia_color) colorFamilyMap[r.color] = r.familia_color
+
+    // Color family matrix
+    const fam = r.familia_color || "Sin familia"
+    if (!branchMonthColorFamilyMatrix[r.sucursal_id]) branchMonthColorFamilyMatrix[r.sucursal_id] = {}
+    if (!branchMonthColorFamilyMatrix[r.sucursal_id][key]) branchMonthColorFamilyMatrix[r.sucursal_id][key] = {}
+    const cfSlot = branchMonthColorFamilyMatrix[r.sucursal_id][key]
+    if (!cfSlot[fam]) cfSlot[fam] = { rev: 0, units: 0 }
+    cfSlot[fam].rev += r.importe_neto
+    cfSlot[fam].units += r.unidades
+
+    // Individual color matrix
+    const col = r.color || "Sin color"
+    if (!branchMonthColorMatrix[r.sucursal_id]) branchMonthColorMatrix[r.sucursal_id] = {}
+    if (!branchMonthColorMatrix[r.sucursal_id][key]) branchMonthColorMatrix[r.sucursal_id][key] = {}
+    const cSlot = branchMonthColorMatrix[r.sucursal_id][key]
+    if (!cSlot[col]) cSlot[col] = { rev: 0, units: 0 }
+    cSlot[col].rev += r.importe_neto
+    cSlot[col].units += r.unidades
+
+    // Size matrix (tipo_talla → talla)
+    const tipTalla = r.tipo_talla || "Otro"
+    const tall = r.talla || "Sin talla"
+    if (!branchMonthSizeMatrix[r.sucursal_id]) branchMonthSizeMatrix[r.sucursal_id] = {}
+    if (!branchMonthSizeMatrix[r.sucursal_id][key]) branchMonthSizeMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthSizeMatrix[r.sucursal_id][key][tipTalla]) branchMonthSizeMatrix[r.sucursal_id][key][tipTalla] = {}
+    const sSlot = branchMonthSizeMatrix[r.sucursal_id][key][tipTalla]
+    if (!sSlot[tall]) sSlot[tall] = { rev: 0, units: 0 }
+    sSlot[tall].rev += r.importe_neto
+    sSlot[tall].units += r.unidades
+
+    // Product type matrix (categoria → tipo_producto)
+    const tipo = r.tipo_producto || "Sin tipo"
+    if (!branchMonthProductTypeMatrix[r.sucursal_id]) branchMonthProductTypeMatrix[r.sucursal_id] = {}
+    if (!branchMonthProductTypeMatrix[r.sucursal_id][key]) branchMonthProductTypeMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthProductTypeMatrix[r.sucursal_id][key][cat]) branchMonthProductTypeMatrix[r.sucursal_id][key][cat] = {}
+    const pSlot = branchMonthProductTypeMatrix[r.sucursal_id][key][cat]
+    if (!pSlot[tipo]) pSlot[tipo] = { rev: 0, units: 0 }
+    pSlot[tipo].rev += r.importe_neto
+    pSlot[tipo].units += r.unidades
   }
 
   // Discount × Branch × Month: for client-side KPI 1-4 filtering
@@ -560,6 +615,9 @@ export function computeDashboardSummary(): DashboardSummary {
     branchMonthMatrix, branchMonthUnitsMatrix, branchCategoryMatrix,
     branchMonthCategoryMatrix, branchMonthCategoryUnitsMatrix,
     branchYearMatrix, monthCategoryMatrix, discountMonthMatrix,
+    branchMonthColorFamilyMatrix, branchMonthColorMatrix,
+    branchMonthSizeMatrix, branchMonthProductTypeMatrix,
+    colorFamilyMap,
     branchMonthlyRevenue,
     physicalTotalRevenue, physicalTotalUnits, physicalRevenueByYear,
     availableBranches, availableYears,
