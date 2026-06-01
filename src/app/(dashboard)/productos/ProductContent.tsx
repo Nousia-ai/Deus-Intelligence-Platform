@@ -95,17 +95,19 @@ function MetricToggle({ metric, setMetric }: { metric: Metric; setMetric: (m: Me
 }
 
 function HBar({
-  label, value, maxValue, metric, color, index = 0, subLabel,
+  label, value, maxValue, total, metric, color, index = 0,
 }: {
   label: string
   value: number
   maxValue: number
+  /** Sum of the full group — used to compute the % label */
+  total: number
   metric: Metric
   color: string
   index?: number
-  subLabel?: string
 }) {
-  const pct = maxValue > 0 ? (value / maxValue) * 100 : 0
+  const barPct   = maxValue > 0 ? (value / maxValue) * 100 : 0
+  const sharePct = total   > 0 ? (value / total)   * 100 : 0
   const fmt = metric === "revenue"
     ? formatCurrency(value, { compact: true })
     : formatNumber(value, { compact: true })
@@ -114,7 +116,7 @@ function HBar({
     <div className="flex items-center gap-2 group py-0.5">
       <span
         className="text-[11px] text-slate-600 text-right truncate flex-shrink-0"
-        style={{ width: 88 }}
+        style={{ width: 80 }}
         title={label}
       >
         {label}
@@ -124,12 +126,14 @@ function HBar({
           className="h-full rounded"
           style={{ backgroundColor: color }}
           initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
+          animate={{ width: `${barPct}%` }}
           transition={{ duration: 0.5, delay: index * 0.025, ease: [0.16, 1, 0.3, 1] }}
         />
       </div>
-      <span className="text-[11px] font-bold text-slate-800 text-right tabular-nums flex-shrink-0" style={{ width: 56 }}>
-        {fmt}
+      {/* Value + share percentage */}
+      <span className="text-right tabular-nums flex-shrink-0 leading-none" style={{ width: 86 }}>
+        <span className="text-[11px] font-bold text-slate-800">{fmt}</span>
+        <span className="text-[10px] text-slate-400 ml-1">{sharePct.toFixed(0)}%</span>
       </span>
     </div>
   )
@@ -249,7 +253,8 @@ export function ProductContent({ data }: ProductContentProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [colorFamilyData, metric],
   )
-  const maxFamily = sortedFamilies[0] ? gv(sortedFamilies[0]) : 1
+  const maxFamily     = sortedFamilies[0] ? gv(sortedFamilies[0]) : 1
+  const totalFamilies = sortedFamilies.reduce((s, f) => s + gv(f), 0)
 
   const familyColors = useMemo(() => {
     if (!expandedFamily) return []
@@ -260,6 +265,11 @@ export function ProductContent({ data }: ProductContentProps) {
       .slice(0, 14)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorData, expandedFamily, data.colorFamilyMap, metric])
+
+  // Total for color drilldown = pre-computed family total (more accurate than summing top-14)
+  const expandedFamilyTotal = expandedFamily
+    ? gv(colorFamilyData[expandedFamily] || { rev: 0, units: 0 })
+    : 0
 
   // Sizes: separate alphabetic and numeric groups
   const alphaSizes = useMemo(() => {
@@ -278,8 +288,10 @@ export function ProductContent({ data }: ProductContentProps) {
     return sorted.map((t) => entries.find((e) => e.talla === t)!).filter(Boolean)
   }, [sizeData])
 
-  const maxAlpha   = Math.max(...alphaSizes.map(gv),   1)
-  const maxNumeric = Math.max(...numericSizes.map(gv), 1)
+  const maxAlpha    = Math.max(...alphaSizes.map(gv),   1)
+  const maxNumeric  = Math.max(...numericSizes.map(gv), 1)
+  const totalAlpha   = alphaSizes.reduce((s, x) => s + gv(x), 0)
+  const totalNumeric = numericSizes.reduce((s, x) => s + gv(x), 0)
 
   // Product type chart
   const availableCategories = useMemo(
@@ -302,7 +314,8 @@ export function ProductContent({ data }: ProductContentProps) {
       .sort((a, b) => gv(b) - gv(a))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productTypeData, effectiveCategory, metric])
-  const maxType = categoryTypes[0] ? gv(categoryTypes[0]) : 1
+  const maxType   = categoryTypes[0] ? gv(categoryTypes[0]) : 1
+  const totalTypes = categoryTypes.reduce((s, x) => s + gv(x), 0)
 
   // ── Existing category display ────────────────────────────────────────────
   const displayCategories = isFiltered
@@ -458,6 +471,7 @@ export function ProductContent({ data }: ProductContentProps) {
                   label={s.talla}
                   value={gv(s)}
                   maxValue={maxAlpha}
+                  total={totalAlpha}
                   metric={metric}
                   color="#6366F1"
                   index={i}
@@ -488,6 +502,7 @@ export function ProductContent({ data }: ProductContentProps) {
                   label={s.talla}
                   value={gv(s)}
                   maxValue={maxNumeric}
+                  total={totalNumeric}
                   metric={metric}
                   color="#8B5CF6"
                   index={i}
@@ -543,11 +558,16 @@ export function ProductContent({ data }: ProductContentProps) {
                       transition={{ duration: 0.5, delay: i * 0.03, ease: [0.16, 1, 0.3, 1] }}
                     />
                   </div>
-                  {/* Metric value */}
-                  <span className="text-[11px] font-bold text-slate-800 tabular-nums text-right flex-shrink-0" style={{ width: 56 }}>
-                    {metric === "revenue"
-                      ? formatCurrency(fam.rev, { compact: true })
-                      : formatNumber(fam.units, { compact: true })}
+                  {/* Metric value + % of total families */}
+                  <span className="tabular-nums text-right flex-shrink-0 leading-none" style={{ width: 86 }}>
+                    <span className="text-[11px] font-bold text-slate-800">
+                      {metric === "revenue"
+                        ? formatCurrency(fam.rev, { compact: true })
+                        : formatNumber(fam.units, { compact: true })}
+                    </span>
+                    <span className="text-[10px] text-slate-400 ml-1">
+                      {totalFamilies > 0 ? ((gv(fam) / totalFamilies) * 100).toFixed(0) : 0}%
+                    </span>
                   </span>
                   {/* Expand icon */}
                   <span className={`text-slate-300 group-hover:text-slate-500 transition-colors flex-shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-0" : ""}`}>
@@ -573,7 +593,10 @@ export function ProductContent({ data }: ProductContentProps) {
                           <p className="text-[11px] text-slate-400 py-1">Sin datos individuales</p>
                         ) : (
                           familyColors.map((c, ci) => {
-                            const maxC = gv(familyColors[0])
+                            const maxC       = gv(familyColors[0])
+                            const colorShare = expandedFamilyTotal > 0
+                              ? ((gv(c) / expandedFamilyTotal) * 100).toFixed(0)
+                              : "0"
                             return (
                               <div key={c.color} className="flex items-center gap-2">
                                 <span
@@ -592,10 +615,14 @@ export function ProductContent({ data }: ProductContentProps) {
                                     transition={{ duration: 0.4, delay: ci * 0.02, ease: [0.16, 1, 0.3, 1] }}
                                   />
                                 </div>
-                                <span className="text-[11px] font-semibold text-slate-700 tabular-nums text-right flex-shrink-0" style={{ width: 52 }}>
-                                  {metric === "revenue"
-                                    ? formatCurrency(c.rev, { compact: true })
-                                    : formatNumber(c.units, { compact: true })}
+                                {/* value + % of family */}
+                                <span className="tabular-nums text-right flex-shrink-0 leading-none" style={{ width: 72 }}>
+                                  <span className="text-[11px] font-semibold text-slate-700">
+                                    {metric === "revenue"
+                                      ? formatCurrency(c.rev, { compact: true })
+                                      : formatNumber(c.units, { compact: true })}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 ml-1">{colorShare}%</span>
                                 </span>
                               </div>
                             )
@@ -663,6 +690,7 @@ export function ProductContent({ data }: ProductContentProps) {
                   label={t.tipo}
                   value={gv(t)}
                   maxValue={maxType}
+                  total={totalTypes}
                   metric={metric}
                   color={CHART_COLORS[i % CHART_COLORS.length]}
                   index={i}
