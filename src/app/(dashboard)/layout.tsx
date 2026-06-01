@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/layout/Sidebar"
 import { FilterBar } from "@/components/layout/FilterBar"
 import { FilterProvider } from "@/contexts/FilterContext"
 import { computeDashboardSummary } from "@/lib/analytics"
+import { InsightsWidget } from "@/components/ui/QuickNotes"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const data = computeDashboardSummary()
@@ -17,6 +18,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </main>
         </div>
       </div>
+      <InsightsWidget />
     </FilterProvider>
   )
 }
