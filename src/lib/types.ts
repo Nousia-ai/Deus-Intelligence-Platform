@@ -130,6 +130,17 @@ export type BranchMonthSizeMatrix = Record<string, Record<string, Record<string,
 // {sucursal_id: {"2025-1": {categoria: {tipo_producto: {rev, units}}}}}
 export type BranchMonthProductTypeMatrix = Record<string, Record<string, Record<string, Record<string, { rev: number; units: number }>>>>
 
+// {sucursal_id: {"2025-1": {grossMargin, importe_neto}}}
+export type BranchMonthMarginMatrix = Record<string, Record<string, { grossMargin: number; importe_neto: number }>>
+// {sucursal_id: {"2025-1": {marca: {revenue, units}}}}
+export type BranchMonthBrandMatrix = Record<string, Record<string, Record<string, { revenue: number; units: number }>>>
+// {sucursal_id: {"2025-1": {forma_cobro: {count, revenue}}}}
+export type BranchMonthPaymentMatrix = Record<string, Record<string, Record<string, { count: number; revenue: number }>>>
+// {sucursal_id: {"2025-1": {genero: {revenue, units}}}}
+export type BranchMonthGenderMatrix = Record<string, Record<string, Record<string, { revenue: number; units: number }>>>
+// {sucursal_id: {"2025-1": {"0".."6": {revenue, units}}}}
+export type BranchMonthDayOfWeekMatrix = Record<string, Record<string, Record<string, { revenue: number; units: number }>>>
+
 // {sucursal_id: {"2025-1": {discount KPI numerators}}}
 export type DiscountMonthMatrix = Record<string, Record<string, {
   revConDesc: number
@@ -245,6 +256,11 @@ export interface DashboardSummary {
   branchYearMatrix: BranchYearMatrix
   monthCategoryMatrix: MonthCategoryMatrix
   discountMonthMatrix: DiscountMonthMatrix
+  branchMonthMarginMatrix: BranchMonthMarginMatrix
+  branchMonthBrandMatrix: BranchMonthBrandMatrix
+  branchMonthPaymentMatrix: BranchMonthPaymentMatrix
+  branchMonthGenderMatrix: BranchMonthGenderMatrix
+  branchMonthDayOfWeekMatrix: BranchMonthDayOfWeekMatrix
   // Producto distribution matrices (physical branches, filter-compatible)
   branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix
   branchMonthColorMatrix: BranchMonthColorMatrix

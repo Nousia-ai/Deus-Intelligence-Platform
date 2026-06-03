@@ -20,6 +20,9 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
     isFiltered, filter,
     filteredRevenue, filteredUnits, filteredMonthlyRevenue,
     filteredBranchRevenue, filteredCategoryRevenue, yoyChange,
+    filteredMarginPct, filteredGrossMargin,
+    filteredDiscountKPIs,
+    filteredTopBrands, filteredPaymentMethods, filteredGenderSplit, filteredDayOfWeek,
   } = useFilter()
 
   // Derive years to show in chart (last 2 of selection, or last 2 available)
@@ -91,7 +94,10 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
               }
             </h2>
             <p className="text-white/60 text-sm mt-1.5">
-              {formatNumber(data.totalTransactions, { compact: false })} transacciones · {data.activeBranches} sucursales · {formatNumber(data.activeProducts)} SKUs
+              {isFiltered
+                ? `${filter.selectedBranches.length > 0 ? filter.selectedBranches.length : data.activeBranches} sucursales · ${filter.selectedYears.length > 0 ? filter.selectedYears.join(", ") : "Todos los años"} · ${filter.selectedMonths.length > 0 ? `${filter.selectedMonths.length} meses` : "Todos los meses"}`
+                : `${formatNumber(data.totalTransactions, { compact: false })} transacciones · ${data.activeBranches} sucursales · ${formatNumber(data.activeProducts)} SKUs`
+              }
             </p>
           </div>
           <div className="flex-shrink-0 text-right hidden md:block">
@@ -141,8 +147,10 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
         />
         <KPICard
           title="Margen bruto"
-          value={formatPercentAbs(data.marginPct)}
-          subtitle={`${formatCurrency(data.grossMargin, { compact: true })} generados`}
+          value={formatPercentAbs(filteredMarginPct)}
+          numericValue={filteredMarginPct}
+          formatter={(n) => formatPercentAbs(n)}
+          subtitle={`${formatCurrency(filteredGrossMargin, { compact: true })} generados`}
           icon={TrendingUp}
           iconColor="text-emerald-600"
           accentColor="bg-emerald-50"
@@ -162,7 +170,12 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
       {/* Secondary KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Sucursales", value: `${data.activeBranches}`, sub: "puntos físicos activos", icon: Store, color: "text-sky-600" },
+          {
+            label: "Sucursales",
+            value: `${filter.selectedBranches.length > 0 ? filter.selectedBranches.length : filteredBranchRevenue.filter((b) => b.revenue > 0).length}`,
+            sub: filter.selectedBranches.length > 0 ? "seleccionadas" : "puntos físicos activos",
+            icon: Store, color: "text-sky-600",
+          },
           { label: "SKUs únicos", value: formatNumber(data.activeProducts), sub: "artículos en catálogo", icon: Package, color: "text-slate-600" },
           (() => {
             const evoLatest = evolutionYearRevenue[latestAvailYear] || 0
@@ -177,7 +190,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
               color: chg >= 0 ? "text-emerald-600" : "text-red-500",
             }
           })(),
-          { label: "Con descuento", value: formatPercentAbs(data.discountStats.pctWithDiscount), sub: "de las líneas", icon: Percent, color: "text-amber-600" },
+          { label: "Con descuento", value: formatPercentAbs(filteredDiscountKPIs.pctVentasConDescuento), sub: "de los ingresos", icon: Percent, color: "text-amber-600" },
         ].map((item, i) => (
           <motion.div key={item.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.25 + i * 0.05 }} className="bg-white rounded-xl card-shadow p-4 group hover:card-shadow-hover transition-all duration-200">
             <div className="flex items-center gap-2 mb-2">
@@ -218,7 +231,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.35 }} className="bg-white rounded-xl card-shadow p-5">
           <SectionHeader title="Ventas por día" subtitle="Distribución semanal acumulada" />
           <div className="h-52">
-            <DayOfWeekChart data={data.dayOfWeek} />
+            <DayOfWeekChart data={filteredDayOfWeek} />
           </div>
           <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">
             <span className="font-semibold text-slate-600">Vie–Dom</span> concentran más del 53% del ingreso semanal.
@@ -264,7 +277,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="bg-white rounded-xl card-shadow p-5">
           <SectionHeader title="Top marcas" subtitle="Participación en ingresos" />
           <div className="space-y-3 mt-2">
-            {data.topBrands.slice(0, 6).map((brand, i) => (
+            {filteredTopBrands.map((brand, i) => (
               <div key={brand.marca} className="flex items-center gap-3">
                 <span className="text-xs font-mono text-slate-400 w-4">{i + 1}</span>
                 <div className="flex-1 min-w-0">
@@ -292,7 +305,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
           <div>
             <SectionHeader title="Forma de pago" subtitle="Composición de transacciones" />
             <div className="space-y-2.5">
-              {data.paymentMethods.slice(0, 4).map((p) => (
+              {filteredPaymentMethods.map((p) => (
                 <div key={p.method} className="flex items-center gap-3">
                   <span className="text-xs text-slate-600 w-28 truncate font-medium">{p.method}</span>
                   <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -307,7 +320,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
           <div className="border-t border-slate-100 pt-4">
             <SectionHeader title="Género" subtitle="Participación en ingresos" />
             <div className="flex gap-3">
-              {data.genderSplit.map((g, i) => (
+              {filteredGenderSplit.map((g, i) => (
                 <div key={g.genero} className="flex-1 rounded-lg p-3" style={{ background: ["#EEF2FF", "#F5F3FF", "#F0F9FF"][i] }}>
                   <p className="text-lg font-bold tabular-nums" style={{ color: ["#4F46E5", "#7C3AED", "#0EA5E9"][i] }}>{g.share.toFixed(0)}%</p>
                   <p className="text-[11px] text-slate-600 font-medium mt-0.5">{g.genero}</p>

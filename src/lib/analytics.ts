@@ -17,6 +17,11 @@ import type {
   BranchYearMatrix,
   MonthCategoryMatrix,
   DiscountMonthMatrix,
+  BranchMonthMarginMatrix,
+  BranchMonthBrandMatrix,
+  BranchMonthPaymentMatrix,
+  BranchMonthGenderMatrix,
+  BranchMonthDayOfWeekMatrix,
   BranchMonthColorFamilyMatrix,
   BranchMonthColorMatrix,
   BranchMonthSizeMatrix,
@@ -259,6 +264,11 @@ export function computeDashboardSummary(): DashboardSummary {
   const branchMonthCategoryMatrix: BranchMonthCategoryMatrix = {}
   // Branch × Month × Category: {sucursal_id: {"2025-1": {categoria: units}}}  — for filter-aware uds display
   const branchMonthCategoryUnitsMatrix: BranchMonthCategoryUnitsMatrix = {}
+  // ── Filter-aware KPI matrices (all branches) ─────────────────────────────
+  const branchMonthBrandMatrix: BranchMonthBrandMatrix = {}
+  const branchMonthPaymentMatrix: BranchMonthPaymentMatrix = {}
+  const branchMonthGenderMatrix: BranchMonthGenderMatrix = {}
+  const branchMonthDayOfWeekMatrix: BranchMonthDayOfWeekMatrix = {}
   // ── Producto distribution matrices (physical branches only) ──────────────
   const branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix = {}
   const branchMonthColorMatrix: BranchMonthColorMatrix = {}
@@ -290,6 +300,38 @@ export function computeDashboardSummary(): DashboardSummary {
     if (!branchMonthCategoryUnitsMatrix[r.sucursal_id][key]) branchMonthCategoryUnitsMatrix[r.sucursal_id][key] = {}
     branchMonthCategoryUnitsMatrix[r.sucursal_id][key][cat] =
       (branchMonthCategoryUnitsMatrix[r.sucursal_id][key][cat] || 0) + r.unidades
+
+    // ── Brand matrix (all branches) ──────────────────────────────────────────
+    const br = r.marca || "Otro"
+    if (!branchMonthBrandMatrix[r.sucursal_id]) branchMonthBrandMatrix[r.sucursal_id] = {}
+    if (!branchMonthBrandMatrix[r.sucursal_id][key]) branchMonthBrandMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthBrandMatrix[r.sucursal_id][key][br]) branchMonthBrandMatrix[r.sucursal_id][key][br] = { revenue: 0, units: 0 }
+    branchMonthBrandMatrix[r.sucursal_id][key][br].revenue += r.importe_neto
+    branchMonthBrandMatrix[r.sucursal_id][key][br].units += r.unidades
+
+    // ── Payment method matrix (all branches) ─────────────────────────────────
+    const pmt = r.forma_cobro_principal || "Otro"
+    if (!branchMonthPaymentMatrix[r.sucursal_id]) branchMonthPaymentMatrix[r.sucursal_id] = {}
+    if (!branchMonthPaymentMatrix[r.sucursal_id][key]) branchMonthPaymentMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthPaymentMatrix[r.sucursal_id][key][pmt]) branchMonthPaymentMatrix[r.sucursal_id][key][pmt] = { count: 0, revenue: 0 }
+    branchMonthPaymentMatrix[r.sucursal_id][key][pmt].count += 1
+    branchMonthPaymentMatrix[r.sucursal_id][key][pmt].revenue += r.importe_neto
+
+    // ── Gender matrix (all branches) ─────────────────────────────────────────
+    const gen = r.genero === "Dam" || r.genero === "Dama" ? "Dama" : r.genero === "Cab" || r.genero === "Caballero" ? "Caballero" : "Unisex"
+    if (!branchMonthGenderMatrix[r.sucursal_id]) branchMonthGenderMatrix[r.sucursal_id] = {}
+    if (!branchMonthGenderMatrix[r.sucursal_id][key]) branchMonthGenderMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthGenderMatrix[r.sucursal_id][key][gen]) branchMonthGenderMatrix[r.sucursal_id][key][gen] = { revenue: 0, units: 0 }
+    branchMonthGenderMatrix[r.sucursal_id][key][gen].revenue += r.importe_neto
+    branchMonthGenderMatrix[r.sucursal_id][key][gen].units += r.unidades
+
+    // ── Day-of-week matrix (all branches) ────────────────────────────────────
+    const dayKey = r.dia_semana.toString()
+    if (!branchMonthDayOfWeekMatrix[r.sucursal_id]) branchMonthDayOfWeekMatrix[r.sucursal_id] = {}
+    if (!branchMonthDayOfWeekMatrix[r.sucursal_id][key]) branchMonthDayOfWeekMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthDayOfWeekMatrix[r.sucursal_id][key][dayKey]) branchMonthDayOfWeekMatrix[r.sucursal_id][key][dayKey] = { revenue: 0, units: 0 }
+    branchMonthDayOfWeekMatrix[r.sucursal_id][key][dayKey].revenue += r.importe_neto
+    branchMonthDayOfWeekMatrix[r.sucursal_id][key][dayKey].units += r.unidades
 
     // ── Product distributions — physical branches only ──────────────────────
     if (!PHYSICAL_BRANCHES.includes(r.sucursal_id)) continue
@@ -354,6 +396,17 @@ export function computeDashboardSummary(): DashboardSummary {
       dm.unidConDesc += r.unidades
       dm.profNum += r.pct_descuento * r.importe_neto
     }
+  }
+
+  // Margin matrix — uses mar (excludes bundles + cortesias + null cost)
+  const branchMonthMarginMatrix: BranchMonthMarginMatrix = {}
+  for (const r of mar) {
+    if (!r.año || !r.mes) continue
+    const key = `${r.año}-${r.mes}`
+    if (!branchMonthMarginMatrix[r.sucursal_id]) branchMonthMarginMatrix[r.sucursal_id] = {}
+    if (!branchMonthMarginMatrix[r.sucursal_id][key]) branchMonthMarginMatrix[r.sucursal_id][key] = { grossMargin: 0, importe_neto: 0 }
+    branchMonthMarginMatrix[r.sucursal_id][key].grossMargin += r.importe_neto - r.costo_unitario! * r.unidades
+    branchMonthMarginMatrix[r.sucursal_id][key].importe_neto += r.importe_neto
   }
 
   // Branch × Category: {sucursal_id: {categoria: revenue}}
@@ -616,6 +669,8 @@ export function computeDashboardSummary(): DashboardSummary {
     branchMonthMatrix, branchMonthUnitsMatrix, branchCategoryMatrix,
     branchMonthCategoryMatrix, branchMonthCategoryUnitsMatrix,
     branchYearMatrix, monthCategoryMatrix, discountMonthMatrix,
+    branchMonthMarginMatrix, branchMonthBrandMatrix,
+    branchMonthPaymentMatrix, branchMonthGenderMatrix, branchMonthDayOfWeekMatrix,
     branchMonthColorFamilyMatrix, branchMonthColorMatrix,
     branchMonthSizeMatrix, branchMonthProductTypeMatrix,
     colorFamilyMap,

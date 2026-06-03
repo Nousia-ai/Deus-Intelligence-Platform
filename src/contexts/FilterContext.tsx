@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useMemo, useCallback, type ReactNode } from "react"
 import type { DashboardSummary, FilterState, MonthlyRevenue } from "@/lib/types"
-import { MONTH_LABELS_ES, calcChange } from "@/lib/utils"
+import { MONTH_LABELS_ES, DAY_LABELS_ES, calcChange } from "@/lib/utils"
 
 interface DiscountKPIs {
   pctVentasConDescuento: number
@@ -23,6 +23,7 @@ interface FilterContextValue {
   filteredRevenue: number
   filteredUnits: number
   filteredMarginPct: number
+  filteredGrossMargin: number
   filteredMonthlyRevenue: MonthlyRevenue[]
   filteredBranchRevenue: { id: string; nombre: string; revenue: number; revenueShare: number }[]
   filteredCategoryRevenue: { categoria: string; revenue: number; revenueShare: number }[]
@@ -30,6 +31,11 @@ interface FilterContextValue {
   yoyChange: number | null
   // Filtered discount KPIs (1–4)
   filteredDiscountKPIs: DiscountKPIs
+  // Filtered chart data
+  filteredTopBrands: { marca: string; revenue: number; units: number; share: number }[]
+  filteredPaymentMethods: { method: string; count: number; revenue: number; share: number }[]
+  filteredGenderSplit: { genero: string; revenue: number; units: number; share: number }[]
+  filteredDayOfWeek: { dia: number; label: string; revenue: number; units: number }[]
 }
 
 const FilterContext = createContext<FilterContextValue | null>(null)
@@ -214,16 +220,117 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       }
     }
 
+    // ── Filtered margin (physical scope, excludes bundles + null cost) ────────
+    let filtGrossMarginNum = 0, filtGrossMarginDen = 0
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthMarginMatrix[branchId] || {}
+      for (const [key, val] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        filtGrossMarginNum += val.grossMargin
+        filtGrossMarginDen += val.importe_neto
+      }
+    }
+    const filteredMarginPct = filtGrossMarginDen > 0 ? (filtGrossMarginNum / filtGrossMarginDen) * 100 : 0
+    const filteredGrossMargin = filtGrossMarginNum
+
+    // ── Filtered top brands ───────────────────────────────────────────────────
+    const brandRevMap: Record<string, { revenue: number; units: number }> = {}
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthBrandMatrix[branchId] || {}
+      for (const [key, brandMap] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        for (const [marca, vals] of Object.entries(brandMap)) {
+          if (!brandRevMap[marca]) brandRevMap[marca] = { revenue: 0, units: 0 }
+          brandRevMap[marca].revenue += vals.revenue
+          brandRevMap[marca].units += vals.units
+        }
+      }
+    }
+    const brandTotal = Object.values(brandRevMap).reduce((s, v) => s + v.revenue, 0)
+    const filteredTopBrands = Object.entries(brandRevMap)
+      .map(([marca, m]) => ({ marca, ...m, share: brandTotal > 0 ? (m.revenue / brandTotal) * 100 : 0 }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 6)
+
+    // ── Filtered payment methods ──────────────────────────────────────────────
+    const payRevMap: Record<string, { count: number; revenue: number }> = {}
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthPaymentMatrix[branchId] || {}
+      for (const [key, payMap] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        for (const [method, vals] of Object.entries(payMap)) {
+          if (!payRevMap[method]) payRevMap[method] = { count: 0, revenue: 0 }
+          payRevMap[method].count += vals.count
+          payRevMap[method].revenue += vals.revenue
+        }
+      }
+    }
+    const totalPayCount = Object.values(payRevMap).reduce((s, v) => s + v.count, 0)
+    const filteredPaymentMethods = Object.entries(payRevMap)
+      .map(([method, m]) => ({ method, ...m, share: totalPayCount > 0 ? (m.count / totalPayCount) * 100 : 0 }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 4)
+
+    // ── Filtered gender split ─────────────────────────────────────────────────
+    const genRevMap: Record<string, { revenue: number; units: number }> = {}
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthGenderMatrix[branchId] || {}
+      for (const [key, genMap] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        for (const [genero, vals] of Object.entries(genMap)) {
+          if (!genRevMap[genero]) genRevMap[genero] = { revenue: 0, units: 0 }
+          genRevMap[genero].revenue += vals.revenue
+          genRevMap[genero].units += vals.units
+        }
+      }
+    }
+    const genTotal = Object.values(genRevMap).reduce((s, v) => s + v.revenue, 0)
+    const filteredGenderSplit = Object.entries(genRevMap)
+      .map(([genero, m]) => ({ genero, ...m, share: genTotal > 0 ? (m.revenue / genTotal) * 100 : 0 }))
+      .sort((a, b) => b.revenue - a.revenue)
+
+    // ── Filtered day of week ──────────────────────────────────────────────────
+    const dowRevMap: Record<string, { revenue: number; units: number }> = {}
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthDayOfWeekMatrix[branchId] || {}
+      for (const [key, dowMap] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        for (const [dayKey, vals] of Object.entries(dowMap)) {
+          if (!dowRevMap[dayKey]) dowRevMap[dayKey] = { revenue: 0, units: 0 }
+          dowRevMap[dayKey].revenue += vals.revenue
+          dowRevMap[dayKey].units += vals.units
+        }
+      }
+    }
+    const filteredDayOfWeek = Object.entries(dowRevMap)
+      .map(([d, m]) => ({ dia: parseInt(d), label: DAY_LABELS_ES[parseInt(d)] || `Día ${d}`, ...m }))
+      .sort((a, b) => a.dia - b.dia)
+
     return {
       filteredRevenue,
       filteredUnits,
-      filteredMarginPct: data.marginPct,
+      filteredMarginPct,
+      filteredGrossMargin,
       filteredMonthlyRevenue,
       filteredBranchRevenue,
       filteredCategoryRevenue,
       prevYearRevenue,
       yoyChange,
       filteredDiscountKPIs,
+      filteredTopBrands,
+      filteredPaymentMethods,
+      filteredGenderSplit,
+      filteredDayOfWeek,
     }
   }, [filter, data])
 
