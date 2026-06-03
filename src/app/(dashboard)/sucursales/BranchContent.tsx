@@ -168,43 +168,6 @@ export function BranchContent({ data }: BranchContentProps) {
         </motion.div>
       </div>
 
-      {/* Revenue share bars */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4, duration: 0.45 }}
-        className="bg-white rounded-xl card-shadow p-5"
-      >
-        <SectionHeader
-          title="Participación en el total"
-          subtitle={`Contribución al ${isFiltered ? "ingreso filtrado" : "ingreso histórico"}`}
-        />
-        <div className="mt-4 space-y-3">
-          {displayBranches.map((branch, i) => (
-            <div key={branch.sucursal_id} className="flex items-center gap-4">
-              <span className="text-xs font-medium text-slate-600 w-28 truncate flex-shrink-0">
-                {branch.nombre.replace("Deus Store ", "")}
-              </span>
-              <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full rounded-full"
-                  style={{ background: CHART_COLORS[i] }}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${branch.revenueShare}%` }}
-                  transition={{ duration: 0.7, delay: 0.5 + i * 0.07, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] }}
-                />
-              </div>
-              <span className="text-xs font-bold text-slate-700 w-12 text-right flex-shrink-0">
-                {branch.revenueShare.toFixed(1)}%
-              </span>
-              <span className="text-xs text-slate-400 w-16 text-right flex-shrink-0 hidden md:block">
-                {formatCurrency(branch.revenue, { compact: true })}
-              </span>
-            </div>
-          ))}
-        </div>
-      </motion.div>
-
       {/* Insights */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <InsightCard
