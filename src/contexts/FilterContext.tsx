@@ -36,6 +36,7 @@ interface FilterContextValue {
   filteredPaymentMethods: { method: string; count: number; revenue: number; share: number }[]
   filteredGenderSplit: { genero: string; revenue: number; units: number; share: number }[]
   filteredDayOfWeek: { dia: number; label: string; revenue: number; units: number }[]
+  filteredPriceRanges: { rango: string; count: number; revenue: number; share: number }[]
 }
 
 const FilterContext = createContext<FilterContextValue | null>(null)
@@ -316,6 +317,26 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       .map(([d, m]) => ({ dia: parseInt(d), label: DAY_LABELS_ES[parseInt(d)] || `Día ${d}`, ...m }))
       .sort((a, b) => a.dia - b.dia)
 
+    // ── Filtered price ranges ─────────────────────────────────────────────────
+    const priceRevMap: Record<string, { count: number; revenue: number }> = {}
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthPriceRangeMatrix[branchId] || {}
+      for (const [key, rangoMap] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        for (const [rango, vals] of Object.entries(rangoMap)) {
+          if (!priceRevMap[rango]) priceRevMap[rango] = { count: 0, revenue: 0 }
+          priceRevMap[rango].count += vals.count
+          priceRevMap[rango].revenue += vals.revenue
+        }
+      }
+    }
+    const totalPriceCount = Object.values(priceRevMap).reduce((s, v) => s + v.count, 0)
+    const filteredPriceRanges = Object.entries(priceRevMap)
+      .map(([rango, m]) => ({ rango, ...m, share: totalPriceCount > 0 ? (m.count / totalPriceCount) * 100 : 0 }))
+      .sort((a, b) => b.revenue - a.revenue)
+
     return {
       filteredRevenue,
       filteredUnits,
@@ -331,6 +352,7 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       filteredPaymentMethods,
       filteredGenderSplit,
       filteredDayOfWeek,
+      filteredPriceRanges,
     }
   }, [filter, data])
 

@@ -145,7 +145,7 @@ interface ProductContentProps {
 }
 
 export function ProductContent({ data }: ProductContentProps) {
-  const { isFiltered, filter, filteredCategoryRevenue } = useFilter()
+  const { isFiltered, filter, filteredCategoryRevenue, filteredTopBrands, filteredPriceRanges } = useFilter()
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [metric, setMetric] = useState<Metric>("revenue")
@@ -317,19 +317,61 @@ export function ProductContent({ data }: ProductContentProps) {
   const maxType   = categoryTypes[0] ? gv(categoryTypes[0]) : 1
   const totalTypes = categoryTypes.reduce((s, x) => s + gv(x), 0)
 
+  // ── Filtered category metrics (units, margin, discount) ─────────────────
+  const filteredCategoryMetrics = useMemo(() => {
+    const result: Record<string, { units: number; grossMargin: number; importe_neto: number; revConDesc: number; totUnid: number }> = {}
+    for (const bid of activeBranches) {
+      // Units from branchMonthCategoryUnitsMatrix
+      for (const [key, catMap] of Object.entries(data.branchMonthCategoryUnitsMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        for (const [cat, units] of Object.entries(catMap)) {
+          if (!result[cat]) result[cat] = { units: 0, grossMargin: 0, importe_neto: 0, revConDesc: 0, totUnid: 0 }
+          result[cat].units += units
+        }
+      }
+      // Margin from branchMonthCategoryMarginMatrix
+      for (const [key, catMap] of Object.entries(data.branchMonthCategoryMarginMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        for (const [cat, val] of Object.entries(catMap)) {
+          if (!result[cat]) result[cat] = { units: 0, grossMargin: 0, importe_neto: 0, revConDesc: 0, totUnid: 0 }
+          result[cat].grossMargin += val.grossMargin
+          result[cat].importe_neto += val.importe_neto
+        }
+      }
+      // Discount from branchMonthCategoryDiscountMatrix
+      for (const [key, catMap] of Object.entries(data.branchMonthCategoryDiscountMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        for (const [cat, val] of Object.entries(catMap)) {
+          if (!result[cat]) result[cat] = { units: 0, grossMargin: 0, importe_neto: 0, revConDesc: 0, totUnid: 0 }
+          result[cat].revConDesc += val.revConDesc
+          result[cat].totUnid += val.totUnid
+        }
+      }
+    }
+    return result
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, data])
+
   // ── Existing category display ────────────────────────────────────────────
   const displayCategories = isFiltered
     ? filteredCategoryRevenue.map((fc) => {
+        const fm = filteredCategoryMetrics[fc.categoria]
         const s = data.revenueByCategory.find((c) => c.categoria === fc.categoria)
         return {
           categoria: fc.categoria,
           revenue: fc.revenue,
           revenueShare: fc.revenueShare,
-          units: s?.units || 0,
-          avgPrice: s?.avgPrice || 0,
-          grossMargin: s?.grossMargin || 0,
-          marginPct: s?.marginPct || 0,
-          discountRate: s?.discountRate || 0,
+          units: fm?.units ?? s?.units ?? 0,
+          avgPrice: fm && fm.units > 0 ? fc.revenue / fm.units : s?.avgPrice ?? 0,
+          grossMargin: fm?.grossMargin ?? s?.grossMargin ?? 0,
+          marginPct: fm && fm.importe_neto > 0 ? (fm.grossMargin / fm.importe_neto) * 100 : s?.marginPct ?? 0,
+          discountRate: fm && fm.totUnid > 0 ? (fm.revConDesc / fm.totUnid) * 100 : s?.discountRate ?? 0,
         }
       })
     : data.revenueByCategory
@@ -376,7 +418,7 @@ export function ProductContent({ data }: ProductContentProps) {
         <div className="lg:col-span-3 bg-white rounded-xl card-shadow p-5">
           <SectionHeader
             title="Rendimiento por categoría"
-            subtitle={isFiltered ? "Ingresos filtrados · margen histórico" : "Ingresos, margen y descuento"}
+            subtitle={isFiltered ? "Todas las métricas filtradas" : "Ingresos, margen y descuento"}
           />
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-xs">
@@ -703,9 +745,9 @@ export function ProductContent({ data }: ProductContentProps) {
 
       {/* ── Brands performance (existing) ────────────────────────────────── */}
       <div className="bg-white rounded-xl card-shadow p-5">
-        <SectionHeader title="Desempeño de marcas" subtitle="Portafolio completo ordenado por ingresos" />
+        <SectionHeader title="Desempeño de marcas" subtitle={isFiltered ? "Selección filtrada" : "Portafolio completo ordenado por ingresos"} />
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
-          {data.topBrands.map((brand, i) => (
+          {filteredTopBrands.map((brand, i) => (
             <motion.div
               key={brand.marca}
               initial={{ opacity: 0, scale: 0.95 }}
@@ -734,9 +776,9 @@ export function ProductContent({ data }: ProductContentProps) {
       {/* ── Price tier + Insights (existing) ─────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl card-shadow p-5">
-          <SectionHeader title="Segmentación por precio" subtitle="Distribución de líneas por rango de precio" />
+          <SectionHeader title="Segmentación por precio" subtitle={isFiltered ? "Selección filtrada" : "Distribución de líneas por rango de precio"} />
           <div className="space-y-3 mt-3">
-            {data.priceRanges.map((p, i) => (
+            {filteredPriceRanges.map((p, i) => (
               <motion.div
                 key={p.rango}
                 initial={{ opacity: 0, x: -8 }}

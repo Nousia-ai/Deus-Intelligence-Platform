@@ -18,6 +18,9 @@ import type {
   MonthCategoryMatrix,
   DiscountMonthMatrix,
   BranchMonthMarginMatrix,
+  BranchMonthCategoryMarginMatrix,
+  BranchMonthCategoryDiscountMatrix,
+  BranchMonthPriceRangeMatrix,
   BranchMonthBrandMatrix,
   BranchMonthPaymentMatrix,
   BranchMonthGenderMatrix,
@@ -265,6 +268,8 @@ export function computeDashboardSummary(): DashboardSummary {
   // Branch × Month × Category: {sucursal_id: {"2025-1": {categoria: units}}}  — for filter-aware uds display
   const branchMonthCategoryUnitsMatrix: BranchMonthCategoryUnitsMatrix = {}
   // ── Filter-aware KPI matrices (all branches) ─────────────────────────────
+  const branchMonthCategoryDiscountMatrix: BranchMonthCategoryDiscountMatrix = {}
+  const branchMonthPriceRangeMatrix: BranchMonthPriceRangeMatrix = {}
   const branchMonthBrandMatrix: BranchMonthBrandMatrix = {}
   const branchMonthPaymentMatrix: BranchMonthPaymentMatrix = {}
   const branchMonthGenderMatrix: BranchMonthGenderMatrix = {}
@@ -300,6 +305,23 @@ export function computeDashboardSummary(): DashboardSummary {
     if (!branchMonthCategoryUnitsMatrix[r.sucursal_id][key]) branchMonthCategoryUnitsMatrix[r.sucursal_id][key] = {}
     branchMonthCategoryUnitsMatrix[r.sucursal_id][key][cat] =
       (branchMonthCategoryUnitsMatrix[r.sucursal_id][key][cat] || 0) + r.unidades
+
+    // ── Category discount matrix (all branches) ──────────────────────────────
+    if (!branchMonthCategoryDiscountMatrix[r.sucursal_id]) branchMonthCategoryDiscountMatrix[r.sucursal_id] = {}
+    if (!branchMonthCategoryDiscountMatrix[r.sucursal_id][key]) branchMonthCategoryDiscountMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthCategoryDiscountMatrix[r.sucursal_id][key][cat]) branchMonthCategoryDiscountMatrix[r.sucursal_id][key][cat] = { revConDesc: 0, totRev: 0, unidConDesc: 0, totUnid: 0 }
+    const cdSlot = branchMonthCategoryDiscountMatrix[r.sucursal_id][key][cat]
+    cdSlot.totRev += r.importe_neto
+    cdSlot.totUnid += r.unidades
+    if (r.tiene_descuento) { cdSlot.revConDesc += r.importe_neto; cdSlot.unidConDesc += r.unidades }
+
+    // ── Price range matrix (all branches) ────────────────────────────────────
+    const rango = r.rango_precio || "Sin clasificar"
+    if (!branchMonthPriceRangeMatrix[r.sucursal_id]) branchMonthPriceRangeMatrix[r.sucursal_id] = {}
+    if (!branchMonthPriceRangeMatrix[r.sucursal_id][key]) branchMonthPriceRangeMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthPriceRangeMatrix[r.sucursal_id][key][rango]) branchMonthPriceRangeMatrix[r.sucursal_id][key][rango] = { count: 0, revenue: 0 }
+    branchMonthPriceRangeMatrix[r.sucursal_id][key][rango].count += 1
+    branchMonthPriceRangeMatrix[r.sucursal_id][key][rango].revenue += r.importe_neto
 
     // ── Brand matrix (all branches) ──────────────────────────────────────────
     const br = r.marca || "Otro"
@@ -400,13 +422,23 @@ export function computeDashboardSummary(): DashboardSummary {
 
   // Margin matrix — uses mar (excludes bundles + cortesias + null cost)
   const branchMonthMarginMatrix: BranchMonthMarginMatrix = {}
+  const branchMonthCategoryMarginMatrix: BranchMonthCategoryMarginMatrix = {}
   for (const r of mar) {
     if (!r.año || !r.mes) continue
     const key = `${r.año}-${r.mes}`
+    const lineGM = r.importe_neto - r.costo_unitario! * r.unidades
+    // Branch×month margin
     if (!branchMonthMarginMatrix[r.sucursal_id]) branchMonthMarginMatrix[r.sucursal_id] = {}
     if (!branchMonthMarginMatrix[r.sucursal_id][key]) branchMonthMarginMatrix[r.sucursal_id][key] = { grossMargin: 0, importe_neto: 0 }
-    branchMonthMarginMatrix[r.sucursal_id][key].grossMargin += r.importe_neto - r.costo_unitario! * r.unidades
+    branchMonthMarginMatrix[r.sucursal_id][key].grossMargin += lineGM
     branchMonthMarginMatrix[r.sucursal_id][key].importe_neto += r.importe_neto
+    // Branch×month×category margin
+    const cat = r.categoria_macro
+    if (!branchMonthCategoryMarginMatrix[r.sucursal_id]) branchMonthCategoryMarginMatrix[r.sucursal_id] = {}
+    if (!branchMonthCategoryMarginMatrix[r.sucursal_id][key]) branchMonthCategoryMarginMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthCategoryMarginMatrix[r.sucursal_id][key][cat]) branchMonthCategoryMarginMatrix[r.sucursal_id][key][cat] = { grossMargin: 0, importe_neto: 0 }
+    branchMonthCategoryMarginMatrix[r.sucursal_id][key][cat].grossMargin += lineGM
+    branchMonthCategoryMarginMatrix[r.sucursal_id][key][cat].importe_neto += r.importe_neto
   }
 
   // Branch × Category: {sucursal_id: {categoria: revenue}}
@@ -669,7 +701,9 @@ export function computeDashboardSummary(): DashboardSummary {
     branchMonthMatrix, branchMonthUnitsMatrix, branchCategoryMatrix,
     branchMonthCategoryMatrix, branchMonthCategoryUnitsMatrix,
     branchYearMatrix, monthCategoryMatrix, discountMonthMatrix,
-    branchMonthMarginMatrix, branchMonthBrandMatrix,
+    branchMonthMarginMatrix, branchMonthCategoryMarginMatrix,
+    branchMonthCategoryDiscountMatrix, branchMonthPriceRangeMatrix,
+    branchMonthBrandMatrix,
     branchMonthPaymentMatrix, branchMonthGenderMatrix, branchMonthDayOfWeekMatrix,
     branchMonthColorFamilyMatrix, branchMonthColorMatrix,
     branchMonthSizeMatrix, branchMonthProductTypeMatrix,

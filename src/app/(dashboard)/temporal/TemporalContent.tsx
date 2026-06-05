@@ -22,7 +22,7 @@ interface TemporalContentProps {
 }
 
 export function TemporalContent({ data }: TemporalContentProps) {
-  const { filteredMonthlyRevenue, filter } = useFilter()
+  const { filteredMonthlyRevenue, filter, filteredDayOfWeek } = useFilter()
   const [selectedMonth, setSelectedMonth] = useState<{ year: number; month: number } | null>(null)
   const latestYear = data.availableYears[data.availableYears.length - 1] ?? 2025
   const [activeYear, setActiveYear] = useState<number>(latestYear)
@@ -31,20 +31,25 @@ export function TemporalContent({ data }: TemporalContentProps) {
     ? [...filter.selectedYears].sort()
     : data.availableYears.slice(-3)
 
-  // Seasonality index vs monthly average
-  const months2025 = filteredMonthlyRevenue.filter(m => m.año === activeYear)
-  const avg = months2025.length > 0 ? months2025.reduce((s, m) => s + m.revenue, 0) / months2025.length : 1
+  // Seasonality index vs monthly average — uses GLOBAL data, always fixed
+  const globalMonthsActiveYear = data.revenueByMonth.filter(m => m.año === activeYear)
+  const globalAvg = globalMonthsActiveYear.length > 0
+    ? globalMonthsActiveYear.reduce((s, m) => s + m.revenue, 0) / globalMonthsActiveYear.length
+    : 1
 
   const seasonalityData = Array.from({ length: 12 }, (_, i) => {
     const mes = i + 1
-    const found = months2025.find(x => x.mes === mes)
-    return { mes, label: MONTH_LABELS_ES[mes], index: found ? found.revenue / avg : null, revenue: found?.revenue || 0 }
+    const found = globalMonthsActiveYear.find(x => x.mes === mes)
+    return { mes, label: MONTH_LABELS_ES[mes], index: found ? found.revenue / globalAvg : null, revenue: found?.revenue || 0 }
   })
 
+  // "Pico diciembre" — fixed, global
   const decemberIdx = seasonalityData.find(m => m.mes === 12)?.index || 1
-  const weekendRev = data.dayOfWeek.filter(d => d.dia >= 4).reduce((s, d) => s + d.revenue, 0)
-  const totalDow = data.dayOfWeek.reduce((s, d) => s + d.revenue, 0)
-  const weekendShare = (weekendRev / totalDow) * 100
+
+  // "Ventas Vie-Dom" — filtered (uses filteredDayOfWeek from context)
+  const filteredWeekendRev = filteredDayOfWeek.filter(d => d.dia >= 4).reduce((s, d) => s + d.revenue, 0)
+  const filteredTotalDow = filteredDayOfWeek.reduce((s, d) => s + d.revenue, 0)
+  const weekendShare = filteredTotalDow > 0 ? (filteredWeekendRev / filteredTotalDow) * 100 : 0
 
   // Weekly data for selected year
   const weeklyData = useMemo(() => {
@@ -73,7 +78,13 @@ export function TemporalContent({ data }: TemporalContentProps) {
     // DoW for this month (from full data)
     const dowData = data.dayOfWeek.map(d => ({ ...d })) // approximate with global
 
-    return { catData, thisMonthRev, prevMonthRev, momChange, year, month }
+    // Average monthly revenue for this year (for seasonal index)
+    const yearMonths = data.revenueByMonth.filter(m => m.año === year && m.revenue > 0)
+    const avgMonthly = yearMonths.length > 0
+      ? yearMonths.reduce((s, m) => s + m.revenue, 0) / yearMonths.length
+      : 0
+
+    return { catData, thisMonthRev, prevMonthRev, momChange, year, month, avgMonthly }
   }, [selectedMonth, data, filteredMonthlyRevenue])
 
   return (
@@ -93,10 +104,15 @@ export function TemporalContent({ data }: TemporalContentProps) {
             const sortedYears = [...data.availableYears].sort()
             const ly = sortedYears[sortedYears.length - 1]
             const py = sortedYears[sortedYears.length - 2]
-            const lyRev = data.physicalRevenueByYear[ly] || 0
-            const pyRev = data.physicalRevenueByYear[py] || 0
+            // Find the last month with data in the latest year (comparable period)
+            const lyMonths = data.revenueByMonth.filter(m => m.año === ly && m.revenue > 0).map(m => m.mes)
+            const maxMonth = lyMonths.length > 0 ? Math.max(...lyMonths) : 12
+            // Sum only comparable months in both years
+            const lyRev = data.revenueByMonth.filter(m => m.año === ly && m.mes <= maxMonth).reduce((s, m) => s + m.revenue, 0)
+            const pyRev = data.revenueByMonth.filter(m => m.año === py && m.mes <= maxMonth).reduce((s, m) => s + m.revenue, 0)
             const chg = pyRev > 0 ? calcChange(lyRev, pyRev) : 0
-            return { label: `Crecimiento ${py}→${ly}`, value: `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, sub: "interanual", color: "text-amber-600" }
+            const monthLabel = MONTH_LABELS_ES[maxMonth] || `M${maxMonth}`
+            return { label: `Crecimiento ${py}→${ly}`, value: `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, sub: `Ene–${monthLabel} (período comparable)`, color: chg >= 0 ? "text-emerald-600" : "text-red-500" }
           })(),
         ].map((item, i) => (
           <motion.div key={item.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} className="bg-white rounded-xl card-shadow p-4">
@@ -172,7 +188,7 @@ export function TemporalContent({ data }: TemporalContentProps) {
                 <div className="bg-white/10 rounded-xl p-3">
                   <p className="text-indigo-300/70 text-[10px] uppercase tracking-wide mb-1">Índice estacional</p>
                   <p className="text-xl font-bold tabular-nums">
-                    {avg > 0 ? (monthDetail.thisMonthRev / avg).toFixed(2) : "—"}×
+                    {monthDetail.avgMonthly > 0 ? (monthDetail.thisMonthRev / monthDetail.avgMonthly).toFixed(2) : "—"}×
                   </p>
                 </div>
                 <div className="bg-white/10 rounded-xl p-3">
@@ -280,9 +296,9 @@ export function TemporalContent({ data }: TemporalContentProps) {
       {/* DoW + YoY table */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-white rounded-xl card-shadow p-5">
-          <SectionHeader title="Distribución por día de semana" subtitle="Ingresos acumulados históricos" />
+          <SectionHeader title="Distribución por día de semana" subtitle={filter.selectedBranches.length > 0 || filter.selectedYears.length > 0 || filter.selectedMonths.length > 0 ? "Selección filtrada" : "Ingresos acumulados históricos"} />
           <div className="h-52 mt-2">
-            <DayOfWeekChart data={data.dayOfWeek} />
+            <DayOfWeekChart data={filteredDayOfWeek} />
           </div>
           <div className="mt-3 flex gap-3">
             <div className="flex-1 p-3 rounded-lg bg-indigo-50">
@@ -321,20 +337,26 @@ export function TemporalContent({ data }: TemporalContentProps) {
                   </thead>
                   <tbody>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map(mes => {
-                      const revByYear = tableYears.map(y => filteredMonthlyRevenue.find(m => m.año === y && m.mes === mes)?.revenue || 0)
+                      // Fixed: uses global data.revenueByMonth, not filtered
+                      const revByYear = tableYears.map(y => data.revenueByMonth.find(m => m.año === y && m.mes === mes)?.revenue || 0)
                       const lastRev = revByYear[revByYear.length - 1]
                       const prevRev = revByYear[revByYear.length - 2] ?? 0
-                      const chg = prevRev > 0 ? calcChange(lastRev, prevRev) : null
+                      // If latest year has no data for this month → pending, show friendly indicator
+                      const isPending = lastRev === 0
+                      const chg = (!isPending && prevRev > 0) ? calcChange(lastRev, prevRev) : null
                       return (
                         <tr key={mes} onClick={() => lastRev > 0 && setSelectedMonth({ year: lastY, month: mes })} className={`border-b border-slate-50 hover:bg-slate-50/60 cursor-pointer transition-colors ${selectedMonth?.month === mes ? "bg-indigo-50/50" : ""}`}>
                           <td className="py-1.5 px-1 font-medium text-slate-700">{MONTH_LABELS_ES[mes]}</td>
                           {revByYear.map((rev, yi) => (
                             <td key={tableYears[yi]} className={`py-1.5 px-1 text-right tabular-nums ${yi === revByYear.length - 1 ? "font-bold text-slate-900" : "text-slate-400"}`}>
-                              {rev > 0 ? formatCurrency(rev, { compact: true }) : "—"}
+                              {rev > 0 ? formatCurrency(rev, { compact: true }) : <span className="text-slate-200">—</span>}
                             </td>
                           ))}
-                          <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${chg === null ? "text-slate-300" : chg >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                            {chg !== null ? `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%` : "—"}
+                          <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${chg === null ? "text-slate-200" : chg >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                            {isPending
+                              ? <span className="text-[9px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-medium">pendiente</span>
+                              : chg !== null ? `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%` : "—"
+                            }
                           </td>
                         </tr>
                       )

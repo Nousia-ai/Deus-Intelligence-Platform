@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Store, Filter } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -23,6 +24,10 @@ const RANK_LABELS = ["#1", "#2", "#3", "#4", "#5", "#6"]
 export function BranchContent({ data }: BranchContentProps) {
   const { isFiltered, filter, filteredBranchRevenue, filteredRevenue } = useFilter()
 
+  // Active filter params (mirrors FilterContext logic)
+  const activeYears = filter.selectedYears.length > 0 ? filter.selectedYears : data.availableYears
+  const activeMonths = filter.selectedMonths
+
   // Build display branches: merge filtered revenue with static metrics
   const physicalBranches = data.revenueByBranch.filter((b) => b.tipo === "física")
 
@@ -41,12 +46,45 @@ export function BranchContent({ data }: BranchContentProps) {
         .sort((a, b) => b.revenue - a.revenue)
     : physicalBranches.sort((a, b) => b.revenue - a.revenue)
 
+  // Per-branch filtered margin and discount (from matrices, respects year+month filters)
+  const filteredBranchMetrics = useMemo(() => {
+    const result: Record<string, { marginPct: number; discountRate: number }> = {}
+    for (const b of displayBranches) {
+      const bid = b.sucursal_id
+      // Margin
+      let gm = 0, imn = 0
+      for (const [key, val] of Object.entries(data.branchMonthMarginMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        gm += val.grossMargin; imn += val.importe_neto
+      }
+      const marginPct = imn > 0 ? (gm / imn) * 100 : b.marginPct
+      // Discount
+      let unidConDesc = 0, totUnid = 0
+      for (const [key, val] of Object.entries(data.discountMonthMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        unidConDesc += val.unidConDesc; totUnid += val.totUnid
+      }
+      const discountRate = totUnid > 0 ? (unidConDesc / totUnid) * 100 : b.discountRate
+      result[bid] = { marginPct, discountRate }
+    }
+    return result
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayBranches, data, activeYears, activeMonths])
+
   const totalRev = isFiltered ? filteredRevenue : data.physicalTotalRevenue
   const leader = displayBranches[0]
   const laggard = displayBranches[displayBranches.length - 1]
   const gapPct = leader && laggard ? ((leader.revenue - laggard.revenue) / leader.revenue) * 100 : 0
-  const avgMargin = displayBranches.length > 0 ? displayBranches.reduce((s, b) => s + b.marginPct, 0) / displayBranches.length : 0
-  const avgDiscount = displayBranches.length > 0 ? displayBranches.reduce((s, b) => s + b.discountRate, 0) / displayBranches.length : 0
+  const avgMargin = displayBranches.length > 0
+    ? displayBranches.reduce((s, b) => s + (filteredBranchMetrics[b.sucursal_id]?.marginPct ?? b.marginPct), 0) / displayBranches.length
+    : 0
+  const avgDiscount = displayBranches.length > 0
+    ? displayBranches.reduce((s, b) => s + (filteredBranchMetrics[b.sucursal_id]?.discountRate ?? b.discountRate), 0) / displayBranches.length
+    : 0
 
   return (
     <div className="space-y-6 pb-8">
@@ -151,10 +189,10 @@ export function BranchContent({ data }: BranchContentProps) {
                   </p>
                   <div className="flex items-center gap-3 mt-0.5">
                     <span className="text-[10px] text-slate-400">
-                      Margen: <span className="font-semibold text-slate-600">{formatPercentAbs(branch.marginPct)}</span>
+                      Margen: <span className="font-semibold text-slate-600">{formatPercentAbs(filteredBranchMetrics[branch.sucursal_id]?.marginPct ?? branch.marginPct)}</span>
                     </span>
                     <span className="text-[10px] text-slate-400">
-                      Desc: <span className="font-semibold text-slate-600">{formatPercentAbs(branch.discountRate)}</span>
+                      Desc: <span className="font-semibold text-slate-600">{formatPercentAbs(filteredBranchMetrics[branch.sucursal_id]?.discountRate ?? branch.discountRate)}</span>
                     </span>
                   </div>
                 </div>
