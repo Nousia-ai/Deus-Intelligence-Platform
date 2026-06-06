@@ -1,6 +1,5 @@
 "use client"
 
-import { useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Store, Filter } from "lucide-react"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -22,11 +21,7 @@ interface BranchContentProps {
 const RANK_LABELS = ["#1", "#2", "#3", "#4", "#5", "#6"]
 
 export function BranchContent({ data }: BranchContentProps) {
-  const { isFiltered, filter, filteredBranchRevenue, filteredRevenue } = useFilter()
-
-  // Active filter params (mirrors FilterContext logic)
-  const activeYears = filter.selectedYears.length > 0 ? filter.selectedYears : data.availableYears
-  const activeMonths = filter.selectedMonths
+  const { isFiltered, filter, filteredBranchRevenue, filteredRevenue, filteredBranchMetrics } = useFilter()
 
   // Build display branches: merge filtered revenue with static metrics
   const physicalBranches = data.revenueByBranch.filter((b) => b.tipo === "física")
@@ -45,35 +40,6 @@ export function BranchContent({ data }: BranchContentProps) {
         .filter((b) => b.revenue > 0)
         .sort((a, b) => b.revenue - a.revenue)
     : physicalBranches.sort((a, b) => b.revenue - a.revenue)
-
-  // Per-branch filtered margin and discount (from matrices, respects year+month filters)
-  const filteredBranchMetrics = useMemo(() => {
-    const result: Record<string, { marginPct: number; discountRate: number }> = {}
-    for (const b of displayBranches) {
-      const bid = b.sucursal_id
-      // Margin
-      let gm = 0, imn = 0
-      for (const [key, val] of Object.entries(data.branchMonthMarginMatrix[bid] || {})) {
-        const [y, m] = key.split("-").map(Number)
-        if (!activeYears.includes(y)) continue
-        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
-        gm += val.grossMargin; imn += val.importe_neto
-      }
-      const marginPct = imn > 0 ? (gm / imn) * 100 : b.marginPct
-      // Discount
-      let unidConDesc = 0, totUnid = 0
-      for (const [key, val] of Object.entries(data.discountMonthMatrix[bid] || {})) {
-        const [y, m] = key.split("-").map(Number)
-        if (!activeYears.includes(y)) continue
-        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
-        unidConDesc += val.unidConDesc; totUnid += val.totUnid
-      }
-      const discountRate = totUnid > 0 ? (unidConDesc / totUnid) * 100 : b.discountRate
-      result[bid] = { marginPct, discountRate }
-    }
-    return result
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayBranches, data, activeYears, activeMonths])
 
   const totalRev = isFiltered ? filteredRevenue : data.physicalTotalRevenue
   const leader = displayBranches[0]

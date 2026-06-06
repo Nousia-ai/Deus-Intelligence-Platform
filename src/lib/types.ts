@@ -146,6 +146,8 @@ export type BranchMonthPaymentMatrix = Record<string, Record<string, Record<stri
 export type BranchMonthGenderMatrix = Record<string, Record<string, Record<string, { revenue: number; units: number }>>>
 // {sucursal_id: {"2025-1": {"0".."6": {revenue, units}}}}
 export type BranchMonthDayOfWeekMatrix = Record<string, Record<string, Record<string, { revenue: number; units: number }>>>
+// {sucursal_id: {"2025-1": unique ticket count}} — for filtered ATV/UPT
+export type BranchMonthTicketCountMatrix = Record<string, Record<string, number>>
 
 // {sucursal_id: {"2025-1": {discount KPI numerators}}}
 export type DiscountMonthMatrix = Record<string, Record<string, {
@@ -270,6 +272,7 @@ export interface DashboardSummary {
   branchMonthPaymentMatrix: BranchMonthPaymentMatrix
   branchMonthGenderMatrix: BranchMonthGenderMatrix
   branchMonthDayOfWeekMatrix: BranchMonthDayOfWeekMatrix
+  branchMonthTicketCountMatrix: BranchMonthTicketCountMatrix
   // Producto distribution matrices (physical branches, filter-compatible)
   branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix
   branchMonthColorMatrix: BranchMonthColorMatrix

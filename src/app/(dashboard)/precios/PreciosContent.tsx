@@ -13,14 +13,46 @@ interface PreciosContentProps {
 }
 
 export function PreciosContent({ data }: PreciosContentProps) {
-  const { isFiltered, filter, filteredRevenue } = useFilter()
-  const { discountStats, priceRanges, paymentMethods, revenueByCategory } = data
-  const lostRevenue = discountStats.revenueImpact
+  const {
+    isFiltered, filter, filteredRevenue,
+    filteredDiscountKPIs, filteredPriceRanges,
+    filteredPaymentMethods, filteredCategoryDiscount,
+  } = useFilter()
 
-  // Scale lost revenue to filtered period if active
+  // ── Active discount values: filtered or global ─────────────────────────────
+  const disc = isFiltered
+    ? {
+        pctWithDiscount: filteredDiscountKPIs.pctVentasConDescuento,
+        avgDiscount: filteredDiscountKPIs.profundidadDescuento,
+        fullPrice: filteredDiscountKPIs.mixPrecioLista,
+      }
+    : {
+        pctWithDiscount: data.discountStats.pctWithDiscount,
+        avgDiscount: data.discountStats.avgDiscountWhenApplied,
+        fullPrice: 100 - data.discountStats.pctWithDiscount,
+      }
+
+  // ── Scaled lost revenue (approximation — price_lista matrix not available) ─
+  const lostRevenue = data.discountStats.revenueImpact
   const scaledLostRevenue = isFiltered && data.physicalTotalRevenue > 0
     ? (lostRevenue / data.physicalTotalRevenue) * filteredRevenue
     : lostRevenue
+
+  // ── Price segments: filtered or global ─────────────────────────────────────
+  const displayPriceRanges = isFiltered ? filteredPriceRanges : data.priceRanges
+
+  // ── Payment methods: filtered or global ────────────────────────────────────
+  const displayPaymentMethods = isFiltered ? filteredPaymentMethods : data.paymentMethods
+
+  // ── Category discount: filtered or global ──────────────────────────────────
+  const displayCategoryDiscount = data.revenueByCategory.slice(0, 7)
+    .map((cat) => ({
+      categoria: cat.categoria,
+      discountRate: isFiltered && filteredCategoryDiscount[cat.categoria] !== undefined
+        ? filteredCategoryDiscount[cat.categoria]
+        : cat.discountRate,
+    }))
+    .sort((a, b) => b.discountRate - a.discountRate)
 
   return (
     <div className="space-y-6 pb-8">
@@ -48,7 +80,7 @@ export function PreciosContent({ data }: PreciosContentProps) {
                 )}
                 {filter.selectedBranches.length > 0 && filter.selectedYears.length > 0 && " · "}
                 {filter.selectedYears.length > 0 && <strong>años {filter.selectedYears.join(", ")}</strong>}.
-                {" "}Tasas de descuento y formas de pago reflejan el histórico total del portafolio.
+                {" "}Todas las métricas reflejan el período seleccionado.
               </span>
             </div>
           </motion.div>
@@ -58,10 +90,10 @@ export function PreciosContent({ data }: PreciosContentProps) {
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Con descuento", value: formatPercentAbs(discountStats.pctWithDiscount), sub: "de las líneas de venta", color: "text-amber-600", bg: "bg-amber-50" },
-          { label: "Descuento promedio", value: formatPercentAbs(discountStats.avgDiscountWhenApplied), sub: "cuando se aplica", color: "text-red-500", bg: "bg-red-50" },
-          { label: "Ingreso sacrificado", value: formatCurrency(scaledLostRevenue, { compact: true }), sub: isFiltered ? "estimado filtrado" : "vs precio lista total", color: "text-slate-600", bg: "bg-slate-50" },
-          { label: "Ventas full-price", value: formatPercentAbs(100 - discountStats.pctWithDiscount), sub: "al precio de etiqueta", color: "text-emerald-600", bg: "bg-emerald-50" },
+          { label: "Con descuento", value: formatPercentAbs(disc.pctWithDiscount), sub: "de las líneas de venta", color: "text-amber-600" },
+          { label: "Descuento promedio", value: formatPercentAbs(disc.avgDiscount), sub: isFiltered ? "promedio ponderado filtrado" : "cuando se aplica", color: "text-red-500" },
+          { label: "Ingreso sacrificado", value: formatCurrency(scaledLostRevenue, { compact: true }), sub: isFiltered ? "estimado filtrado" : "vs precio lista total", color: "text-slate-600" },
+          { label: "Ventas full-price", value: formatPercentAbs(disc.fullPrice), sub: "al precio de etiqueta", color: "text-emerald-600" },
         ].map((item, i) => (
           <motion.div key={item.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }} className="bg-white rounded-xl card-shadow p-4">
             <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">{item.label}</p>
@@ -74,9 +106,12 @@ export function PreciosContent({ data }: PreciosContentProps) {
       {/* Price segment analysis */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-white rounded-xl card-shadow p-5">
-          <SectionHeader title="Segmentos de precio" subtitle="Distribución de ventas por rango de precio" />
+          <SectionHeader
+            title="Segmentos de precio"
+            subtitle={isFiltered ? "Distribución filtrada por rango de precio" : "Distribución de ventas por rango de precio"}
+          />
           <div className="mt-4 space-y-4">
-            {priceRanges.map((p, i) => (
+            {displayPriceRanges.map((p, i) => (
               <div key={p.rango}>
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center gap-2">
@@ -105,9 +140,12 @@ export function PreciosContent({ data }: PreciosContentProps) {
 
         {/* Discount by category */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="bg-white rounded-xl card-shadow p-5">
-          <SectionHeader title="Descuento por categoría" subtitle="% de líneas con descuento aplicado" />
+          <SectionHeader
+            title="Descuento por categoría"
+            subtitle={isFiltered ? "% unidades con descuento — filtrado" : "% de líneas con descuento aplicado"}
+          />
           <div className="mt-4 space-y-3">
-            {revenueByCategory.slice(0, 7).sort((a, b) => b.discountRate - a.discountRate).map((cat, i) => (
+            {displayCategoryDiscount.map((cat, i) => (
               <div key={cat.categoria} className="flex items-center gap-3">
                 <span className="text-xs font-medium text-slate-600 w-24 truncate">{cat.categoria}</span>
                 <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -130,9 +168,12 @@ export function PreciosContent({ data }: PreciosContentProps) {
 
       {/* Payment method */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="bg-white rounded-xl card-shadow p-5">
-        <SectionHeader title="Formas de pago" subtitle="Composición de transacciones por método de cobro" />
+        <SectionHeader
+          title="Formas de pago"
+          subtitle={isFiltered ? "Composición filtrada por método de cobro" : "Composición de transacciones por método de cobro"}
+        />
         <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4">
-          {paymentMethods.map((p, i) => (
+          {displayPaymentMethods.map((p, i) => (
             <motion.div
               key={p.method}
               initial={{ opacity: 0, scale: 0.95 }}
@@ -167,8 +208,8 @@ export function PreciosContent({ data }: PreciosContentProps) {
             id: "full-price-power",
             type: "opportunity",
             title: "Poder de precio sólido — modelo full-price",
-            description: `El ${(100 - discountStats.pctWithDiscount).toFixed(1)}% de las ventas se realizan al precio de etiqueta, sin descuento. Esto indica alta aceptación del precio por parte del consumidor y preserva el margen bruto.`,
-            metricValue: `${(100 - discountStats.pctWithDiscount).toFixed(1)}% sin desc.`,
+            description: `El ${disc.fullPrice.toFixed(1)}% de las ventas se realizan al precio de etiqueta, sin descuento${isFiltered ? " en el período filtrado" : ""}. Esto indica alta aceptación del precio por parte del consumidor y preserva el margen bruto.`,
+            metricValue: `${disc.fullPrice.toFixed(1)}% sin desc.`,
             priority: "high",
           }}
         />
@@ -177,8 +218,8 @@ export function PreciosContent({ data }: PreciosContentProps) {
             id: "efectivo-dominant",
             type: "info",
             title: "Efectivo — método de pago dominante",
-            description: `El ${paymentMethods[0]?.share.toFixed(0)}% de las transacciones se realizan en efectivo. Esto tiene implicaciones en flujo de caja diario y gestión de caja por sucursal.`,
-            metricValue: `${paymentMethods[0]?.share.toFixed(0)}% efectivo`,
+            description: `El ${displayPaymentMethods[0]?.share.toFixed(0)}% de las transacciones${isFiltered ? " filtradas" : ""} se realizan en efectivo. Esto tiene implicaciones en flujo de caja diario y gestión de caja por sucursal.`,
+            metricValue: `${displayPaymentMethods[0]?.share.toFixed(0)}% efectivo`,
             priority: "medium",
           }}
         />

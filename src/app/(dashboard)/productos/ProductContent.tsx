@@ -319,7 +319,8 @@ export function ProductContent({ data }: ProductContentProps) {
 
   // ── Filtered category metrics (units, margin, discount) ─────────────────
   const filteredCategoryMetrics = useMemo(() => {
-    const result: Record<string, { units: number; grossMargin: number; importe_neto: number; revConDesc: number; totUnid: number }> = {}
+    const result: Record<string, { units: number; grossMargin: number; importe_neto: number; revConDesc: number; unidConDesc: number; totUnid: number }> = {}
+    const emptyRow = () => ({ units: 0, grossMargin: 0, importe_neto: 0, revConDesc: 0, unidConDesc: 0, totUnid: 0 })
     for (const bid of activeBranches) {
       // Units from branchMonthCategoryUnitsMatrix
       for (const [key, catMap] of Object.entries(data.branchMonthCategoryUnitsMatrix[bid] || {})) {
@@ -327,7 +328,7 @@ export function ProductContent({ data }: ProductContentProps) {
         if (!activeYears.includes(y)) continue
         if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
         for (const [cat, units] of Object.entries(catMap)) {
-          if (!result[cat]) result[cat] = { units: 0, grossMargin: 0, importe_neto: 0, revConDesc: 0, totUnid: 0 }
+          if (!result[cat]) result[cat] = emptyRow()
           result[cat].units += units
         }
       }
@@ -337,7 +338,7 @@ export function ProductContent({ data }: ProductContentProps) {
         if (!activeYears.includes(y)) continue
         if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
         for (const [cat, val] of Object.entries(catMap)) {
-          if (!result[cat]) result[cat] = { units: 0, grossMargin: 0, importe_neto: 0, revConDesc: 0, totUnid: 0 }
+          if (!result[cat]) result[cat] = emptyRow()
           result[cat].grossMargin += val.grossMargin
           result[cat].importe_neto += val.importe_neto
         }
@@ -348,8 +349,9 @@ export function ProductContent({ data }: ProductContentProps) {
         if (!activeYears.includes(y)) continue
         if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
         for (const [cat, val] of Object.entries(catMap)) {
-          if (!result[cat]) result[cat] = { units: 0, grossMargin: 0, importe_neto: 0, revConDesc: 0, totUnid: 0 }
+          if (!result[cat]) result[cat] = emptyRow()
           result[cat].revConDesc += val.revConDesc
+          result[cat].unidConDesc += val.unidConDesc
           result[cat].totUnid += val.totUnid
         }
       }
@@ -371,7 +373,7 @@ export function ProductContent({ data }: ProductContentProps) {
           avgPrice: fm && fm.units > 0 ? fc.revenue / fm.units : s?.avgPrice ?? 0,
           grossMargin: fm?.grossMargin ?? s?.grossMargin ?? 0,
           marginPct: fm && fm.importe_neto > 0 ? (fm.grossMargin / fm.importe_neto) * 100 : s?.marginPct ?? 0,
-          discountRate: fm && fm.totUnid > 0 ? (fm.revConDesc / fm.totUnid) * 100 : s?.discountRate ?? 0,
+          discountRate: fm && fm.totUnid > 0 ? (fm.unidConDesc / fm.totUnid) * 100 : s?.discountRate ?? 0,
         }
       })
     : data.revenueByCategory

@@ -1,10 +1,11 @@
 "use client"
 
+import { useMemo } from "react"
 import { motion } from "framer-motion"
 import {
-  Target, TrendingUp, TrendingDown, Minus,
-  Tag, BarChart3, Store, ShoppingCart,
-  Repeat2, Award, Box, LayoutGrid,
+  Target, TrendingUp, TrendingDown,
+  Tag, BarChart3, Store,
+  Repeat2, Award, Box,
   CheckCircle2, AlertCircle, XCircle,
   ArrowUpRight, ArrowDownRight,
 } from "lucide-react"
@@ -12,14 +13,14 @@ import { AnimatePresence } from "framer-motion"
 import { Filter } from "lucide-react"
 import { SectionHeader } from "@/components/layout/PageHeader"
 import { useFilter } from "@/contexts/FilterContext"
-import { formatCurrency, formatPercentAbs, formatNumber, CHART_COLORS } from "@/lib/utils"
+import { formatCurrency, formatPercentAbs, formatNumber, CHART_COLORS, calcChange } from "@/lib/utils"
 import type { DashboardSummary } from "@/lib/types"
 
 interface KPIsContentProps {
   data: DashboardSummary
 }
 
-// Status helpers
+// ── Status helpers ─────────────────────────────────────────────────────────────
 type Status = "green" | "amber" | "red"
 
 function getDiscountStatus(pct: number): Status {
@@ -70,19 +71,11 @@ function StatusBadge({ status, label }: { status: Status; label: string }) {
   )
 }
 
-// Reusable KPI metric card
 function MetricCard({
   kpiNum, label, objetivo, value, sub, status, statusLabel, delay = 0, accent = false,
 }: {
-  kpiNum: string
-  label: string
-  objetivo: string
-  value: string
-  sub?: string
-  status: Status
-  statusLabel: string
-  delay?: number
-  accent?: boolean
+  kpiNum: string; label: string; objetivo: string; value: string; sub?: string
+  status: Status; statusLabel: string; delay?: number; accent?: boolean
 }) {
   return (
     <motion.div
@@ -92,30 +85,21 @@ function MetricCard({
       className={`relative bg-white rounded-xl card-shadow p-5 group hover:shadow-md transition-shadow ${accent ? "border border-indigo-100" : ""}`}
     >
       <div className="flex items-start justify-between mb-3">
-        <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">
-          KPI {kpiNum}
-        </span>
+        <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI {kpiNum}</span>
         <StatusBadge status={status} label={statusLabel} />
       </div>
       <p className="text-xs font-semibold text-slate-500 mb-1 leading-tight">{label}</p>
       <p className={`text-2xl font-bold leading-none mb-1 ${
         status === "green" ? "text-emerald-700" : status === "amber" ? "text-amber-700" : "text-red-600"
-      }`}>
-        {value}
-      </p>
+      }`}>{value}</p>
       {sub && <p className="text-[11px] text-slate-400 mt-1">{sub}</p>}
-      <p className="text-[10px] text-slate-300 mt-3 leading-tight italic border-t border-slate-50 pt-2">
-        Obj: {objetivo}
-      </p>
+      <p className="text-[10px] text-slate-300 mt-3 leading-tight italic border-t border-slate-50 pt-2">Obj: {objetivo}</p>
     </motion.div>
   )
 }
 
-// Section title strip
 function SectionStrip({ icon: Icon, kpis, title, color = "indigo" }: {
-  icon: React.ElementType
-  kpis: string
-  title: string
+  icon: React.ElementType; kpis: string; title: string
   color?: "indigo" | "emerald" | "amber" | "blue" | "purple" | "rose"
 }) {
   const colorMap = {
@@ -139,41 +123,47 @@ function SectionStrip({ icon: Icon, kpis, title, color = "indigo" }: {
 
 export function KPIsContent({ data }: KPIsContentProps) {
   const k = data.ceoKPIs
-  const { isFiltered, filter, filteredRevenue, filteredBranchRevenue, filteredDiscountKPIs } = useFilter()
+  const {
+    isFiltered, filter,
+    filteredRevenue, filteredUnits,
+    filteredBranchRevenue, filteredDiscountKPIs,
+    filteredMarginPct, filteredGrossMargin,
+    filteredATV, filteredUPT, filteredTicketCount,
+    filteredBranchMetrics,
+  } = useFilter()
 
-  // When filtered, use computed discount KPIs; otherwise use global pre-computed values
+  // ── Filter scope helpers ─────────────────────────────────────────────────────
+  const activeYears = useMemo(
+    () => filter.selectedYears.length > 0 ? filter.selectedYears : data.availableYears,
+    [filter.selectedYears, data.availableYears],
+  )
+  const activeMonths = filter.selectedMonths
+  const activeBranches = useMemo(
+    () => filter.selectedBranches.length > 0 ? filter.selectedBranches : data.availableBranches.map((b) => b.id),
+    [filter.selectedBranches, data.availableBranches],
+  )
+
+  // ── Discount KPIs (filtered or global) ──────────────────────────────────────
   const disc = isFiltered ? filteredDiscountKPIs : {
     pctVentasConDescuento: k.pctVentasConDescuento,
     pctUnidadesConDescuento: k.pctUnidadesConDescuento,
     profundidadDescuento: k.profundidadDescuento,
     mixPrecioLista: k.mixPrecioLista,
   }
-  const displayRevenue = isFiltered ? filteredRevenue : data.physicalTotalRevenue
 
-  // Health score uses current (filtered or global) disc values
-  const statuses = [
-    getDiscountStatus(disc.pctVentasConDescuento),
-    getDiscountStatus(disc.pctUnidadesConDescuento),
-    getDepthStatus(disc.profundidadDescuento),
-    getFullPriceStatus(disc.mixPrecioLista),
-    getMarginStatus(k.margenBrutoPct),
-    getGrowthStatus(k.lflGrowthPct),
-    getUPTStatus(k.upt),
-    getConcentrationStatus(k.top10Concentration),
-  ]
-  const greens = statuses.filter((s) => s === "green").length
-  const ambers = statuses.filter((s) => s === "amber").length
-  const healthScore = Math.round(((greens * 1 + ambers * 0.5) / statuses.length) * 100)
+  // ── Display values: filtered or global ──────────────────────────────────────
+  const displayRevenue   = isFiltered ? filteredRevenue  : data.physicalTotalRevenue
+  const displayUnits     = isFiltered ? filteredUnits    : data.physicalTotalUnits
+  const displayMarginPct = isFiltered ? filteredMarginPct : k.margenBrutoPct
+  const displayMarginAbs = isFiltered ? filteredGrossMargin : k.margenBrutoAbs
+  const displayATV       = isFiltered ? filteredATV  : k.atv
+  const displayUPT       = isFiltered ? filteredUPT  : k.upt
+  const displayTickets   = isFiltered ? filteredTicketCount : k.uniqueTickets
 
-  // Build filter label
-  const filterLabel = [
-    filter.selectedBranches.length > 0 && `${filter.selectedBranches.length} sucursal${filter.selectedBranches.length > 1 ? "es" : ""}`,
-    filter.selectedYears.length > 0 && `${filter.selectedYears.sort().join(", ")}`,
-    filter.selectedMonths.length > 0 && `${filter.selectedMonths.length} mes${filter.selectedMonths.length > 1 ? "es" : ""}`,
-  ].filter(Boolean).join(" · ")
-
-  // Branch display: merge filtered revenue with static metrics
+  // ── Physical branches ────────────────────────────────────────────────────────
   const physicalBranches = data.revenueByBranch.filter((b) => b.tipo === "física")
+
+  // ── Branch display list (revenue filtered, metrics from FilterContext) ──────
   const displayBranches = isFiltered
     ? filteredBranchRevenue
         .filter((fb) => physicalBranches.some((pb) => pb.sucursal_id === fb.id))
@@ -184,6 +174,81 @@ export function KPIsContent({ data }: KPIsContentProps) {
         .filter((b) => b.revenue > 0)
         .sort((a, b) => b.revenue - a.revenue)
     : physicalBranches.sort((a, b) => b.revenue - a.revenue)
+
+  // ── KPI 10 LFL — filtered by selected branches ───────────────────────────────
+  const filteredLFLBranches = useMemo(() => {
+    if (!isFiltered || filter.selectedBranches.length === 0) return k.lflBranches
+    return k.lflBranches.filter((b) => filter.selectedBranches.includes(b.id))
+  }, [isFiltered, filter.selectedBranches, k.lflBranches])
+
+  const filteredLFLRevenue2024 = filteredLFLBranches.reduce((s, b) => s + b.rev2024, 0)
+  const filteredLFLRevenue2025 = filteredLFLBranches.reduce((s, b) => s + b.rev2025, 0)
+  const filteredLFLGrowth = filteredLFLRevenue2024 > 0
+    ? calcChange(filteredLFLRevenue2025, filteredLFLRevenue2024)
+    : k.lflGrowthPct
+
+  // ── KPI 11 Brands — filtered revenue/share, global margin/discount ──────────
+  const filteredBrandMetrics = useMemo(() => {
+    if (!isFiltered) return k.brandMetrics
+    const brandRevMap: Record<string, number> = {}
+    for (const bid of activeBranches) {
+      const bm = data.branchMonthBrandMatrix[bid] || {}
+      for (const [key, brandMap] of Object.entries(bm)) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        for (const [marca, vals] of Object.entries(brandMap)) {
+          brandRevMap[marca] = (brandRevMap[marca] || 0) + vals.revenue
+        }
+      }
+    }
+    const total = Object.values(brandRevMap).reduce((s, v) => s + v, 0)
+    return Object.entries(brandRevMap)
+      .map(([marca, revenue]) => {
+        const g = k.brandMetrics.find((b) => b.marca === marca)
+        return {
+          marca, revenue,
+          share: total > 0 ? (revenue / total) * 100 : 0,
+          units: g?.units ?? 0,
+          grossMargin: g?.grossMargin ?? 0,
+          marginPct: g?.marginPct ?? 0,
+          discountPct: g?.discountPct ?? 0,
+          esMarcaPropia: g?.esMarcaPropia ?? false,
+        }
+      })
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFiltered, data, activeYears, activeMonths, activeBranches, k.brandMetrics])
+
+  // Marca propia vs terceros revenue share — from filtered brand metrics
+  const filteredMPRevenue = filteredBrandMetrics.filter((b) => b.esMarcaPropia).reduce((s, b) => s + b.revenue, 0)
+  const filteredBrandTotal = filteredBrandMetrics.reduce((s, b) => s + b.revenue, 0)
+  const displayMarcaPropiaRevShare = filteredBrandTotal > 0
+    ? (filteredMPRevenue / filteredBrandTotal) * 100
+    : k.marcaPropiaRevShare
+
+  // ── Health score (uses filtered values where available) ──────────────────────
+  const statuses = [
+    getDiscountStatus(disc.pctVentasConDescuento),
+    getDiscountStatus(disc.pctUnidadesConDescuento),
+    getDepthStatus(disc.profundidadDescuento),
+    getFullPriceStatus(disc.mixPrecioLista),
+    getMarginStatus(displayMarginPct),
+    getGrowthStatus(filteredLFLGrowth),
+    getUPTStatus(displayUPT),
+    getConcentrationStatus(k.top10Concentration), // global (SKU matrix not filterable)
+  ]
+  const greens = statuses.filter((s) => s === "green").length
+  const ambers = statuses.filter((s) => s === "amber").length
+  const healthScore = Math.round(((greens * 1 + ambers * 0.5) / statuses.length) * 100)
+
+  // Filter label for header
+  const filterLabel = [
+    filter.selectedBranches.length > 0 && `${filter.selectedBranches.length} sucursal${filter.selectedBranches.length > 1 ? "es" : ""}`,
+    filter.selectedYears.length > 0 && `${filter.selectedYears.sort().join(", ")}`,
+    filter.selectedMonths.length > 0 && `${filter.selectedMonths.length} mes${filter.selectedMonths.length > 1 ? "es" : ""}`,
+  ].filter(Boolean).join(" · ")
 
   return (
     <div className="space-y-7 pb-10 p-6">
@@ -207,19 +272,17 @@ export function KPIsContent({ data }: KPIsContentProps) {
             <h2 className="text-2xl font-bold">13 KPIs estratégicos</h2>
             <p className="text-white/50 text-sm mt-1">
               {isFiltered
-                ? `${formatCurrency(displayRevenue, { compact: true })} ingreso filtrado`
+                ? `${formatCurrency(displayRevenue, { compact: true })} ingreso · ${formatNumber(displayTickets)} tickets`
                 : `Fórmulas exactas · Datos Apr 2023 – May 2026 · ${formatNumber(data.totalTransactions)} transacciones`}
             </p>
           </div>
           <div className="flex items-center gap-6">
-            {/* Health score pill */}
             <div className="text-center">
               <div className={`text-4xl font-bold tabular-nums ${healthScore >= 70 ? "text-emerald-400" : healthScore >= 50 ? "text-amber-400" : "text-red-400"}`}>
                 {healthScore}
               </div>
               <p className="text-white/40 text-[10px] uppercase tracking-wide mt-0.5">Score</p>
             </div>
-            {/* Status summary */}
             <div className="space-y-1.5 text-sm">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
@@ -249,11 +312,9 @@ export function KPIsContent({ data }: KPIsContentProps) {
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700"
           >
             <Filter className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="text-xs font-semibold">
-              Vista filtrada · {filterLabel}
-            </span>
+            <span className="text-xs font-semibold">Vista filtrada · {filterLabel}</span>
             <span className="ml-auto text-[11px] text-indigo-400">
-              KPIs 01–04 reflejan el período seleccionado · KPIs 05–13 son datos globales
+              KPIs 01–11 reflejan el período seleccionado · KPIs 12–13 son datos globales
             </span>
           </motion.div>
         )}
@@ -278,7 +339,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
           label="% Unidades con descuento"
           objetivo="Reducir dependencia de descuentos"
           value={formatPercentAbs(disc.pctUnidadesConDescuento)}
-          sub={`${formatNumber(displayRevenue > 0 ? data.physicalTotalUnits * disc.pctUnidadesConDescuento / 100 : 0, { compact: true })} uds en descuento`}
+          sub={`${formatNumber(displayUnits * disc.pctUnidadesConDescuento / 100, { compact: true })} uds en descuento`}
           status={getDiscountStatus(disc.pctUnidadesConDescuento)}
           statusLabel={getDiscountStatus(disc.pctUnidadesConDescuento) === "green" ? "En objetivo" : "Observar"}
         />
@@ -307,7 +368,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
         <SectionStrip icon={BarChart3} kpis="05 · 07" title="Rentabilidad — Margen Bruto" color="emerald" />
       </motion.div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Big margin card */}
+        {/* Big margin card (KPI 05) */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -319,14 +380,14 @@ export function KPIsContent({ data }: KPIsContentProps) {
               <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 05</span>
               <p className="text-xs font-semibold text-slate-500 mt-2">Margen bruto %</p>
             </div>
-            <StatusBadge status={getMarginStatus(k.margenBrutoPct)} label={getMarginStatus(k.margenBrutoPct) === "green" ? "Saludable" : "Revisar"} />
+            <StatusBadge status={getMarginStatus(displayMarginPct)} label={getMarginStatus(displayMarginPct) === "green" ? "Saludable" : "Revisar"} />
           </div>
           <div>
-            <p className={`text-5xl font-bold tabular-nums ${getMarginStatus(k.margenBrutoPct) === "green" ? "text-emerald-600" : "text-amber-600"}`}>
-              {k.margenBrutoPct.toFixed(1)}%
+            <p className={`text-5xl font-bold tabular-nums ${getMarginStatus(displayMarginPct) === "green" ? "text-emerald-600" : "text-amber-600"}`}>
+              {displayMarginPct.toFixed(1)}%
             </p>
             <p className="text-sm text-slate-500 mt-2">
-              <span className="font-bold text-slate-800">{formatCurrency(k.margenBrutoAbs, { compact: true })}</span> margen absoluto
+              <span className="font-bold text-slate-800">{formatCurrency(displayMarginAbs, { compact: true })}</span> margen absoluto
             </p>
             <p className="text-[10px] text-slate-300 mt-3 italic border-t border-slate-50 pt-2">
               (Ventas – Costo) / Ventas · excluye es_cortesia · solo es_bundle=false con costo
@@ -334,37 +395,44 @@ export function KPIsContent({ data }: KPIsContentProps) {
           </div>
         </motion.div>
 
-        {/* Margin by branch (KPI 7) */}
+        {/* Margin by branch (KPI 07) */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.25 }}
           className="lg:col-span-2 bg-white rounded-xl card-shadow p-5"
         >
-          <SectionHeader title="Margen bruto por sucursal" subtitle="KPI 07 — Rentabilidad por punto de venta" />
+          <SectionHeader
+            title="Margen bruto por sucursal"
+            subtitle={`KPI 07 — Rentabilidad por punto de venta${isFiltered ? " · filtrado" : ""}`}
+          />
           <div className="mt-3 space-y-2.5">
-            {data.revenueByBranch.filter((b) => b.tipo === "física").map((b, i) => (
-              <div key={b.sucursal_id} className="flex items-center gap-3">
-                <StatusDot status={getMarginStatus(b.marginPct)} />
-                <span className="text-xs font-medium text-slate-600 w-28 truncate flex-shrink-0">
-                  {b.nombre.replace("Deus Store ", "")}
-                </span>
-                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <motion.div
-                    className={`h-full rounded-full ${getMarginStatus(b.marginPct) === "green" ? "bg-emerald-400" : "bg-amber-400"}`}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(b.marginPct, 100)}%` }}
-                    transition={{ duration: 0.7, delay: 0.3 + i * 0.07 }}
-                  />
+            {(isFiltered && filter.selectedBranches.length > 0 ? displayBranches : physicalBranches).map((b, i) => {
+              const margin = filteredBranchMetrics[b.sucursal_id]?.marginPct ?? b.marginPct
+              const gm = filteredBranchMetrics[b.sucursal_id]?.grossMargin ?? b.grossMargin
+              return (
+                <div key={b.sucursal_id} className="flex items-center gap-3">
+                  <StatusDot status={getMarginStatus(margin)} />
+                  <span className="text-xs font-medium text-slate-600 w-28 truncate flex-shrink-0">
+                    {b.nombre.replace("Deus Store ", "")}
+                  </span>
+                  <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <motion.div
+                      className={`h-full rounded-full ${getMarginStatus(margin) === "green" ? "bg-emerald-400" : "bg-amber-400"}`}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(margin, 100)}%` }}
+                      transition={{ duration: 0.7, delay: 0.3 + i * 0.07 }}
+                    />
+                  </div>
+                  <span className="text-xs font-bold text-slate-700 w-12 text-right flex-shrink-0">
+                    {formatPercentAbs(margin)}
+                  </span>
+                  <span className="text-xs text-slate-400 w-18 text-right flex-shrink-0 hidden md:block">
+                    {formatCurrency(gm, { compact: true })}
+                  </span>
                 </div>
-                <span className="text-xs font-bold text-slate-700 w-12 text-right flex-shrink-0">
-                  {formatPercentAbs(b.marginPct)}
-                </span>
-                <span className="text-xs text-slate-400 w-18 text-right flex-shrink-0 hidden md:block">
-                  {formatCurrency(b.grossMargin, { compact: true })}
-                </span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </motion.div>
       </div>
@@ -380,8 +448,8 @@ export function KPIsContent({ data }: KPIsContentProps) {
             kpiNum="08" delay={0.28}
             label="Ticket promedio (ATV)"
             objetivo="Medir valor medio por compra"
-            value={formatCurrency(k.atv)}
-            sub={`${formatNumber(k.uniqueTickets, { compact: true })} tickets únicos identificados`}
+            value={formatCurrency(displayATV)}
+            sub={`${formatNumber(displayTickets, { compact: true })} tickets${isFiltered ? " filtrados" : " únicos identificados"}`}
             status="green"
             statusLabel="Referencia"
           />
@@ -389,21 +457,24 @@ export function KPIsContent({ data }: KPIsContentProps) {
             kpiNum="09" delay={0.31}
             label="Unidades por ticket (UPT)"
             objetivo="Capacidad de cross-sell y bundles"
-            value={k.upt.toFixed(2)}
+            value={displayUPT.toFixed(2)}
             sub="uds promedio por transacción"
-            status={getUPTStatus(k.upt)}
-            statusLabel={getUPTStatus(k.upt) === "green" ? "Saludable" : getUPTStatus(k.upt) === "amber" ? "Mejorar" : "Crítico"}
+            status={getUPTStatus(displayUPT)}
+            statusLabel={getUPTStatus(displayUPT) === "green" ? "Saludable" : getUPTStatus(displayUPT) === "amber" ? "Mejorar" : "Crítico"}
           />
         </div>
 
-        {/* Branch revenue table (KPI 6) */}
+        {/* Branch revenue table (KPI 06) */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
           className="lg:col-span-2 bg-white rounded-xl card-shadow p-5"
         >
-          <SectionHeader title="Ventas netas por sucursal" subtitle="KPI 06 — SUM(importe_neto) por sucursal_id" />
+          <SectionHeader
+            title="Ventas netas por sucursal"
+            subtitle={`KPI 06 — SUM(importe_neto) por sucursal_id${isFiltered ? " · filtrado" : ""}`}
+          />
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -416,39 +487,44 @@ export function KPIsContent({ data }: KPIsContentProps) {
                 </tr>
               </thead>
               <tbody>
-                {displayBranches.map((b, i) => (
-                  <motion.tr
-                    key={b.sucursal_id}
-                    initial={{ opacity: 0, x: -6 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.35 + i * 0.05 }}
-                    className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
-                  >
-                    <td className="py-2.5 px-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: CHART_COLORS[i] }} />
-                        <span className="font-semibold text-slate-800">{b.nombre.replace("Deus Store ", "")}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-2 text-right font-bold text-slate-900">
-                      {formatCurrency(b.revenue, { compact: true })}
-                    </td>
-                    <td className="py-2.5 px-2 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <div className="h-1.5 w-10 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${b.revenueShare}%`, background: CHART_COLORS[i] }} />
+                {displayBranches.map((b, i) => {
+                  const bm = filteredBranchMetrics[b.sucursal_id]
+                  return (
+                    <motion.tr
+                      key={b.sucursal_id}
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.35 + i * 0.05 }}
+                      className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
+                    >
+                      <td className="py-2.5 px-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: CHART_COLORS[i] }} />
+                          <span className="font-semibold text-slate-800">{b.nombre.replace("Deus Store ", "")}</span>
                         </div>
-                        <span className="font-semibold text-slate-600 w-8">{b.revenueShare.toFixed(1)}%</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-2 text-right text-slate-600">{formatNumber(b.units, { compact: true })}</td>
-                    <td className="py-2.5 px-2 text-right hidden md:table-cell">
-                      <span className={`font-semibold ${b.discountRate > 25 ? "text-red-500" : b.discountRate > 15 ? "text-amber-600" : "text-emerald-600"}`}>
-                        {formatPercentAbs(b.discountRate)}
-                      </span>
-                    </td>
-                  </motion.tr>
-                ))}
+                      </td>
+                      <td className="py-2.5 px-2 text-right font-bold text-slate-900">
+                        {formatCurrency(b.revenue, { compact: true })}
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <div className="h-1.5 w-10 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${b.revenueShare}%`, background: CHART_COLORS[i] }} />
+                          </div>
+                          <span className="font-semibold text-slate-600 w-8">{b.revenueShare.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 text-right text-slate-600">
+                        {formatNumber(bm?.units ?? b.units, { compact: true })}
+                      </td>
+                      <td className="py-2.5 px-2 text-right hidden md:table-cell">
+                        <span className={`font-semibold ${(bm?.discountRate ?? b.discountRate) > 25 ? "text-red-500" : (bm?.discountRate ?? b.discountRate) > 15 ? "text-amber-600" : "text-emerald-600"}`}>
+                          {formatPercentAbs(bm?.discountRate ?? b.discountRate)}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -469,23 +545,23 @@ export function KPIsContent({ data }: KPIsContentProps) {
         >
           <div className="flex items-start justify-between mb-4">
             <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 10</span>
-            <StatusBadge status={getGrowthStatus(k.lflGrowthPct)} label={getGrowthStatus(k.lflGrowthPct) === "green" ? "Crecimiento" : k.lflGrowthPct >= 0 ? "Estable" : "Declive"} />
+            <StatusBadge status={getGrowthStatus(filteredLFLGrowth)} label={getGrowthStatus(filteredLFLGrowth) === "green" ? "Crecimiento" : filteredLFLGrowth >= 0 ? "Estable" : "Declive"} />
           </div>
           <p className="text-xs font-semibold text-slate-500 mb-1">Crecimiento LFL total</p>
           <div className="flex items-baseline gap-2">
-            <p className={`text-4xl font-bold tabular-nums ${k.lflGrowthPct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-              {k.lflGrowthPct >= 0 ? "+" : ""}{k.lflGrowthPct.toFixed(1)}%
+            <p className={`text-4xl font-bold tabular-nums ${filteredLFLGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+              {filteredLFLGrowth >= 0 ? "+" : ""}{filteredLFLGrowth.toFixed(1)}%
             </p>
-            {k.lflGrowthPct >= 0 ? <ArrowUpRight className="w-5 h-5 text-emerald-500" /> : <ArrowDownRight className="w-5 h-5 text-red-500" />}
+            {filteredLFLGrowth >= 0 ? <ArrowUpRight className="w-5 h-5 text-emerald-500" /> : <ArrowDownRight className="w-5 h-5 text-red-500" />}
           </div>
           <div className="mt-3 pt-3 border-t border-slate-50 space-y-1">
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">2024 ({k.lflBranches.length} tiendas LFL)</span>
-              <span className="font-semibold text-slate-700">{formatCurrency(k.lflRevenue2024, { compact: true })}</span>
+              <span className="text-slate-400">2024 ({filteredLFLBranches.length} tiendas LFL)</span>
+              <span className="font-semibold text-slate-700">{formatCurrency(filteredLFLRevenue2024, { compact: true })}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">2025 ({k.lflBranches.length} tiendas LFL)</span>
-              <span className="font-bold text-slate-900">{formatCurrency(k.lflRevenue2025, { compact: true })}</span>
+              <span className="text-slate-400">2025 ({filteredLFLBranches.length} tiendas LFL)</span>
+              <span className="font-bold text-slate-900">{formatCurrency(filteredLFLRevenue2025, { compact: true })}</span>
             </div>
           </div>
           <p className="text-[10px] text-slate-300 mt-3 italic border-t border-slate-50 pt-2">
@@ -513,7 +589,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
                 </tr>
               </thead>
               <tbody>
-                {k.lflBranches.map((b, i) => (
+                {filteredLFLBranches.map((b, i) => (
                   <motion.tr
                     key={b.id}
                     initial={{ opacity: 0, x: -6 }}
@@ -568,9 +644,9 @@ export function KPIsContent({ data }: KPIsContentProps) {
           >
             <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-3">Marca propia</p>
             <p className="text-2xl font-bold text-indigo-600">{formatPercentAbs(k.marcaPropiaMargPct)}</p>
-            <p className="text-xs text-slate-500 mt-1">margen bruto</p>
+            <p className="text-xs text-slate-500 mt-1">margen bruto (global)</p>
             <div className="mt-2 pt-2 border-t border-slate-50">
-              <p className="text-xs text-slate-400">{k.marcaPropiaRevShare.toFixed(1)}% del ingreso total</p>
+              <p className="text-xs text-slate-400">{displayMarcaPropiaRevShare.toFixed(1)}% del ingreso{isFiltered ? " filtrado" : " total"}</p>
             </div>
           </motion.div>
           <motion.div
@@ -581,9 +657,9 @@ export function KPIsContent({ data }: KPIsContentProps) {
           >
             <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-3">Marcas terceros</p>
             <p className="text-2xl font-bold text-slate-700">{formatPercentAbs(k.tercerosMargPct)}</p>
-            <p className="text-xs text-slate-500 mt-1">margen bruto</p>
+            <p className="text-xs text-slate-500 mt-1">margen bruto (global)</p>
             <div className="mt-2 pt-2 border-t border-slate-50">
-              <p className="text-xs text-slate-400">{(100 - k.marcaPropiaRevShare).toFixed(1)}% del ingreso total</p>
+              <p className="text-xs text-slate-400">{(100 - displayMarcaPropiaRevShare).toFixed(1)}% del ingreso{isFiltered ? " filtrado" : " total"}</p>
             </div>
           </motion.div>
         </div>
@@ -595,7 +671,10 @@ export function KPIsContent({ data }: KPIsContentProps) {
           transition={{ delay: 0.44 }}
           className="lg:col-span-3 bg-white rounded-xl card-shadow p-5"
         >
-          <SectionHeader title="Margen y descuento por marca (top 10)" subtitle="Ordenado por ingreso · agrupado por marca_en_canonico" />
+          <SectionHeader
+            title="Margen y descuento por marca (top 10)"
+            subtitle={isFiltered ? "Ingresos filtrados · margen/desc histórico global" : "Ordenado por ingreso · agrupado por marca_en_canonico"}
+          />
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -609,7 +688,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
                 </tr>
               </thead>
               <tbody>
-                {k.brandMetrics.slice(0, 10).map((b, i) => (
+                {filteredBrandMetrics.map((b, i) => (
                   <motion.tr
                     key={b.marca}
                     initial={{ opacity: 0, x: -6 }}
@@ -650,15 +729,22 @@ export function KPIsContent({ data }: KPIsContentProps) {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
         <SectionStrip icon={Box} kpis="12–13" title="Performance por SKU y Concentración del Surtido" color="rose" />
       </motion.div>
+      {isFiltered && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          className="overflow-hidden"
+        >
+          <div className="px-4 py-2.5 bg-amber-50 border border-amber-200/60 rounded-xl text-xs text-amber-700 flex items-center gap-2">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            KPIs 12–13 muestran datos históricos globales — el análisis por SKU requiere el dataset completo para ser estadísticamente representativo.
+          </div>
+        </motion.div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Concentration cards */}
         <div className="space-y-4">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.52 }}
-            className="bg-white rounded-xl card-shadow p-4"
-          >
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.52 }} className="bg-white rounded-xl card-shadow p-4">
             <div className="flex items-start justify-between mb-2">
               <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 13</span>
               <StatusBadge status={getConcentrationStatus(k.top3Concentration)} label="Top 3" />
@@ -667,12 +753,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
             <p className="text-3xl font-bold text-slate-900">{k.top3Concentration.toFixed(1)}%</p>
             <p className="text-[10px] text-slate-400 mt-1">del ingreso total</p>
           </motion.div>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.55 }}
-            className="bg-white rounded-xl card-shadow p-4"
-          >
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }} className="bg-white rounded-xl card-shadow p-4">
             <div className="flex items-start justify-between mb-2">
               <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 13</span>
               <StatusBadge status={getConcentrationStatus(k.top10Concentration / 3)} label="Top 10" />
@@ -681,12 +762,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
             <p className="text-3xl font-bold text-slate-900">{k.top10Concentration.toFixed(1)}%</p>
             <p className="text-[10px] text-slate-400 mt-1">del ingreso total</p>
           </motion.div>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.57 }}
-            className="bg-white rounded-xl card-shadow p-4"
-          >
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.57 }} className="bg-white rounded-xl card-shadow p-4">
             <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">Concentración top 20</p>
             <p className="text-3xl font-bold text-slate-700">{k.top20Concentration.toFixed(1)}%</p>
             <p className="text-[10px] text-slate-400 mt-1">{formatNumber(k.totalSKUs)} SKUs padre totales</p>
@@ -700,7 +776,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
           transition={{ delay: 0.53 }}
           className="lg:col-span-3 bg-white rounded-xl card-shadow p-5 overflow-x-auto"
         >
-          <SectionHeader title="Top 25 SKUs padre" subtitle="KPI 12 — SUM(importe_neto), margen y % descuento por estilo" />
+          <SectionHeader title="Top 25 SKUs padre" subtitle="KPI 12 — SUM(importe_neto), margen y % descuento por estilo · datos globales" />
           <table className="w-full text-xs mt-3">
             <thead>
               <tr className="border-b border-slate-100">
@@ -726,9 +802,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
                   <td className="py-1.5 px-2">
                     <span className="font-mono font-semibold text-slate-800 text-[11px]">{sku.sku_padre}</span>
                   </td>
-                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">
-                    {formatCurrency(sku.revenue, { compact: true })}
-                  </td>
+                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">{formatCurrency(sku.revenue, { compact: true })}</td>
                   <td className="py-1.5 px-2 text-right text-slate-500">{formatNumber(sku.units, { compact: true })}</td>
                   <td className="py-1.5 px-2 text-right">
                     <div className="flex items-center justify-end gap-1">

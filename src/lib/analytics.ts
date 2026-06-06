@@ -25,6 +25,7 @@ import type {
   BranchMonthPaymentMatrix,
   BranchMonthGenderMatrix,
   BranchMonthDayOfWeekMatrix,
+  BranchMonthTicketCountMatrix,
   BranchMonthColorFamilyMatrix,
   BranchMonthColorMatrix,
   BranchMonthSizeMatrix,
@@ -274,6 +275,9 @@ export function computeDashboardSummary(): DashboardSummary {
   const branchMonthPaymentMatrix: BranchMonthPaymentMatrix = {}
   const branchMonthGenderMatrix: BranchMonthGenderMatrix = {}
   const branchMonthDayOfWeekMatrix: BranchMonthDayOfWeekMatrix = {}
+  // ── Ticket count per branch×month (for filtered ATV/UPT) ─────────────────
+  const branchMonthTicketCountMatrix: BranchMonthTicketCountMatrix = {}
+  const ticketSets: Record<string, Record<string, Set<string>>> = {}
   // ── Producto distribution matrices (physical branches only) ──────────────
   const branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix = {}
   const branchMonthColorMatrix: BranchMonthColorMatrix = {}
@@ -355,6 +359,13 @@ export function computeDashboardSummary(): DashboardSummary {
     branchMonthDayOfWeekMatrix[r.sucursal_id][key][dayKey].revenue += r.importe_neto
     branchMonthDayOfWeekMatrix[r.sucursal_id][key][dayKey].units += r.unidades
 
+    // ── Unique ticket count per branch×month (dedup by fecha+ticket_total) ────
+    if (r.ticket_total > 0) {
+      if (!ticketSets[r.sucursal_id]) ticketSets[r.sucursal_id] = {}
+      if (!ticketSets[r.sucursal_id][key]) ticketSets[r.sucursal_id][key] = new Set()
+      ticketSets[r.sucursal_id][key].add(`${r.fecha}_${r.ticket_total.toFixed(0)}`)
+    }
+
     // ── Product distributions — physical branches only ──────────────────────
     if (!PHYSICAL_BRANCHES.includes(r.sucursal_id)) continue
 
@@ -399,6 +410,14 @@ export function computeDashboardSummary(): DashboardSummary {
     if (!pSlot[tipo]) pSlot[tipo] = { rev: 0, units: 0 }
     pSlot[tipo].rev += r.importe_neto
     pSlot[tipo].units += r.unidades
+  }
+
+  // Convert ticket Sets to count matrix
+  for (const [bid, monthMap] of Object.entries(ticketSets)) {
+    branchMonthTicketCountMatrix[bid] = {}
+    for (const [monthKey, ticketSet] of Object.entries(monthMap)) {
+      branchMonthTicketCountMatrix[bid][monthKey] = ticketSet.size
+    }
   }
 
   // Discount × Branch × Month: for client-side KPI 1-4 filtering
@@ -705,6 +724,7 @@ export function computeDashboardSummary(): DashboardSummary {
     branchMonthCategoryDiscountMatrix, branchMonthPriceRangeMatrix,
     branchMonthBrandMatrix,
     branchMonthPaymentMatrix, branchMonthGenderMatrix, branchMonthDayOfWeekMatrix,
+    branchMonthTicketCountMatrix,
     branchMonthColorFamilyMatrix, branchMonthColorMatrix,
     branchMonthSizeMatrix, branchMonthProductTypeMatrix,
     colorFamilyMap,

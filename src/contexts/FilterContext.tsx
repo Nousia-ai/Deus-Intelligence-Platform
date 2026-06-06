@@ -37,6 +37,14 @@ interface FilterContextValue {
   filteredGenderSplit: { genero: string; revenue: number; units: number; share: number }[]
   filteredDayOfWeek: { dia: number; label: string; revenue: number; units: number }[]
   filteredPriceRanges: { rango: string; count: number; revenue: number; share: number }[]
+  // Filtered branch-level metrics (margin, gross margin, discount, units)
+  filteredBranchMetrics: Record<string, { marginPct: number; grossMargin: number; discountRate: number; units: number }>
+  // Filtered ATV/UPT (via exact ticket dedup matrix)
+  filteredTicketCount: number
+  filteredATV: number
+  filteredUPT: number
+  // Filtered discount rate per category  { categoria → discountRate % }
+  filteredCategoryDiscount: Record<string, number>
 }
 
 const FilterContext = createContext<FilterContextValue | null>(null)
@@ -337,6 +345,77 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       .map(([rango, m]) => ({ rango, ...m, share: totalPriceCount > 0 ? (m.count / totalPriceCount) * 100 : 0 }))
       .sort((a, b) => b.revenue - a.revenue)
 
+    // ── Filtered branch metrics (margin, grossMargin, discount, units) ───────
+    const branchMetricsMap: Record<string, { marginPct: number; grossMargin: number; discountRate: number; units: number }> = {}
+    for (const b of data.availableBranches) {
+      const bid = b.id
+      const staticB = data.revenueByBranch.find((x) => x.sucursal_id === bid)
+      let gm = 0, imn = 0
+      for (const [key, val] of Object.entries(data.branchMonthMarginMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        gm += val.grossMargin
+        imn += val.importe_neto
+      }
+      let unidConDesc = 0, totUnid = 0
+      for (const [key, val] of Object.entries(data.discountMonthMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        unidConDesc += val.unidConDesc
+        totUnid += val.totUnid
+      }
+      let units = 0
+      for (const [key, val] of Object.entries(data.branchMonthUnitsMatrix[bid] || {})) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        units += val
+      }
+      branchMetricsMap[bid] = {
+        marginPct: imn > 0 ? (gm / imn) * 100 : (staticB?.marginPct ?? 0),
+        grossMargin: gm,
+        discountRate: totUnid > 0 ? (unidConDesc / totUnid) * 100 : (staticB?.discountRate ?? 0),
+        units: units || (staticB?.units ?? 0),
+      }
+    }
+    const filteredBranchMetrics = branchMetricsMap
+
+    // ── Filtered ticket count → ATV / UPT ────────────────────────────────────
+    let filteredTicketCount = 0
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthTicketCountMatrix[branchId] || {}
+      for (const [key, count] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        filteredTicketCount += count
+      }
+    }
+    const filteredATV = filteredTicketCount > 0 ? filteredRevenue / filteredTicketCount : data.ceoKPIs.atv
+    const filteredUPT = filteredTicketCount > 0 ? filteredUnits / filteredTicketCount : data.ceoKPIs.upt
+
+    // ── Filtered category discount rates ─────────────────────────────────────
+    const catDiscMap: Record<string, { unidConDesc: number; totUnid: number }> = {}
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthCategoryDiscountMatrix[branchId] || {}
+      for (const [key, catMap] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        for (const [cat, val] of Object.entries(catMap)) {
+          if (!catDiscMap[cat]) catDiscMap[cat] = { unidConDesc: 0, totUnid: 0 }
+          catDiscMap[cat].unidConDesc += val.unidConDesc
+          catDiscMap[cat].totUnid += val.totUnid
+        }
+      }
+    }
+    const filteredCategoryDiscount: Record<string, number> = {}
+    for (const [cat, val] of Object.entries(catDiscMap)) {
+      filteredCategoryDiscount[cat] = val.totUnid > 0 ? (val.unidConDesc / val.totUnid) * 100 : 0
+    }
+
     return {
       filteredRevenue,
       filteredUnits,
@@ -353,6 +432,11 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       filteredGenderSplit,
       filteredDayOfWeek,
       filteredPriceRanges,
+      filteredBranchMetrics,
+      filteredTicketCount,
+      filteredATV,
+      filteredUPT,
+      filteredCategoryDiscount,
     }
   }, [filter, data])
 
