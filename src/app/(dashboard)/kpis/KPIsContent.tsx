@@ -130,6 +130,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
     filteredMarginPct, filteredGrossMargin,
     filteredATV, filteredUPT, filteredTicketCount,
     filteredBranchMetrics,
+    filteredTopSKUs, filteredConcentration,
   } = useFilter()
 
   // ── Filter scope helpers ─────────────────────────────────────────────────────
@@ -175,17 +176,71 @@ export function KPIsContent({ data }: KPIsContentProps) {
         .sort((a, b) => b.revenue - a.revenue)
     : physicalBranches.sort((a, b) => b.revenue - a.revenue)
 
-  // ── KPI 10 LFL — filtered by selected branches ───────────────────────────────
-  const filteredLFLBranches = useMemo(() => {
-    if (!isFiltered || filter.selectedBranches.length === 0) return k.lflBranches
-    return k.lflBranches.filter((b) => filter.selectedBranches.includes(b.id))
-  }, [isFiltered, filter.selectedBranches, k.lflBranches])
+  // ── KPI 10 LFL — dynamic: computes comparable period from branchMonthMatrix ─
+  const lflData = useMemo(() => {
+    const sortedAvailYears = [...data.availableYears].sort()
 
-  const filteredLFLRevenue2024 = filteredLFLBranches.reduce((s, b) => s + b.rev2024, 0)
-  const filteredLFLRevenue2025 = filteredLFLBranches.reduce((s, b) => s + b.rev2025, 0)
-  const filteredLFLGrowth = filteredLFLRevenue2024 > 0
-    ? calcChange(filteredLFLRevenue2025, filteredLFLRevenue2024)
-    : k.lflGrowthPct
+    // Determine years to compare
+    let yearA: number, yearB: number
+    if (filter.selectedYears.length >= 2) {
+      const sy = [...filter.selectedYears].sort()
+      yearA = sy[sy.length - 2]; yearB = sy[sy.length - 1]
+    } else if (filter.selectedYears.length === 1) {
+      yearB = filter.selectedYears[0]; yearA = yearB - 1
+    } else {
+      // Default: two most recent years (e.g. 2025 vs 2026)
+      yearB = sortedAvailYears[sortedAvailYears.length - 1] ?? 2026
+      yearA = sortedAvailYears[sortedAvailYears.length - 2] ?? yearB - 1
+    }
+
+    // Branches in scope for this comparison
+    const lflBranchIds = filter.selectedBranches.length > 0
+      ? filter.selectedBranches.filter((id) => physicalBranches.some((b) => b.sucursal_id === id))
+      : physicalBranches.map((b) => b.sucursal_id)
+
+    // Find comparable months: months with data in BOTH years across the active branches
+    const monthsInA = new Set<number>()
+    const monthsInB = new Set<number>()
+    for (const bid of lflBranchIds) {
+      for (const [key, rev] of Object.entries(data.branchMonthMatrix[bid] || {})) {
+        if (rev <= 0) continue
+        const [y, m] = key.split("-").map(Number)
+        if (y === yearA) monthsInA.add(m)
+        if (y === yearB) monthsInB.add(m)
+      }
+    }
+    let comparableMonths = [...monthsInA].filter((m) => monthsInB.has(m)).sort((a, b) => a - b)
+
+    // Apply month filter: intersect with selected months (if any)
+    if (activeMonths.length > 0) {
+      const filtered = activeMonths.filter((m) => monthsInA.has(m) && monthsInB.has(m))
+      comparableMonths = filtered.length > 0 ? filtered.sort((a, b) => a - b) : activeMonths.sort((a, b) => a - b)
+    }
+
+    const useMonths = comparableMonths.length > 0 ? comparableMonths : [...monthsInA].sort((a, b) => a - b)
+
+    // Compute per-branch revenues for the comparable period
+    const branches = lflBranchIds
+      .map((bid) => {
+        const bm = data.branchMonthMatrix[bid] || {}
+        let revA = 0, revB = 0
+        for (const m of useMonths) {
+          revA += bm[`${yearA}-${m}`] || 0
+          revB += bm[`${yearB}-${m}`] || 0
+        }
+        const branchInfo = physicalBranches.find((b) => b.sucursal_id === bid)
+        return { id: bid, nombre: branchInfo?.nombre || bid, revA, revB, growth: revA > 0 ? calcChange(revB, revA) : 0, hasBoth: revA > 0 && revB > 0 }
+      })
+      .filter((b) => b.hasBoth)
+      .sort((a, b) => b.revB - a.revB)
+
+    const totalA = branches.reduce((s, b) => s + b.revA, 0)
+    const totalB = branches.reduce((s, b) => s + b.revB, 0)
+    const growth = totalA > 0 ? calcChange(totalB, totalA) : 0
+
+    return { yearA, yearB, comparableMonths: useMonths, branches, totalA, totalB, growth }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, filter.selectedYears, filter.selectedBranches, activeMonths, physicalBranches])
 
   // ── KPI 11 Brands — filtered revenue/share, global margin/discount ──────────
   const filteredBrandMetrics = useMemo(() => {
@@ -235,9 +290,9 @@ export function KPIsContent({ data }: KPIsContentProps) {
     getDepthStatus(disc.profundidadDescuento),
     getFullPriceStatus(disc.mixPrecioLista),
     getMarginStatus(displayMarginPct),
-    getGrowthStatus(filteredLFLGrowth),
+    getGrowthStatus(lflData.growth),
     getUPTStatus(displayUPT),
-    getConcentrationStatus(k.top10Concentration), // global (SKU matrix not filterable)
+    getConcentrationStatus(isFiltered ? filteredConcentration.top10 : k.top10Concentration),
   ]
   const greens = statuses.filter((s) => s === "green").length
   const ambers = statuses.filter((s) => s === "amber").length
@@ -536,7 +591,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
         <SectionStrip icon={Repeat2} kpis="10" title="Like-for-Like — Crecimiento Comparable" color="amber" />
       </motion.div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* LFL summary */}
+        {/* LFL summary card */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -545,27 +600,32 @@ export function KPIsContent({ data }: KPIsContentProps) {
         >
           <div className="flex items-start justify-between mb-4">
             <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 10</span>
-            <StatusBadge status={getGrowthStatus(filteredLFLGrowth)} label={getGrowthStatus(filteredLFLGrowth) === "green" ? "Crecimiento" : filteredLFLGrowth >= 0 ? "Estable" : "Declive"} />
+            <StatusBadge
+              status={getGrowthStatus(lflData.growth)}
+              label={getGrowthStatus(lflData.growth) === "green" ? "Crecimiento" : lflData.growth >= 0 ? "Estable" : "Declive"}
+            />
           </div>
-          <p className="text-xs font-semibold text-slate-500 mb-1">Crecimiento LFL total</p>
+          <p className="text-xs font-semibold text-slate-500 mb-1">
+            Crecimiento LFL — {lflData.yearA} vs {lflData.yearB}
+          </p>
           <div className="flex items-baseline gap-2">
-            <p className={`text-4xl font-bold tabular-nums ${filteredLFLGrowth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-              {filteredLFLGrowth >= 0 ? "+" : ""}{filteredLFLGrowth.toFixed(1)}%
+            <p className={`text-4xl font-bold tabular-nums ${lflData.growth >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+              {lflData.growth >= 0 ? "+" : ""}{lflData.growth.toFixed(1)}%
             </p>
-            {filteredLFLGrowth >= 0 ? <ArrowUpRight className="w-5 h-5 text-emerald-500" /> : <ArrowDownRight className="w-5 h-5 text-red-500" />}
+            {lflData.growth >= 0 ? <ArrowUpRight className="w-5 h-5 text-emerald-500" /> : <ArrowDownRight className="w-5 h-5 text-red-500" />}
           </div>
           <div className="mt-3 pt-3 border-t border-slate-50 space-y-1">
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">2024 ({filteredLFLBranches.length} tiendas LFL)</span>
-              <span className="font-semibold text-slate-700">{formatCurrency(filteredLFLRevenue2024, { compact: true })}</span>
+              <span className="text-slate-400">{lflData.yearA} ({lflData.branches.length} tiendas)</span>
+              <span className="font-semibold text-slate-700">{formatCurrency(lflData.totalA, { compact: true })}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-slate-400">2025 ({filteredLFLBranches.length} tiendas LFL)</span>
-              <span className="font-bold text-slate-900">{formatCurrency(filteredLFLRevenue2025, { compact: true })}</span>
+              <span className="text-slate-400">{lflData.yearB} ({lflData.branches.length} tiendas)</span>
+              <span className="font-bold text-slate-900">{formatCurrency(lflData.totalB, { compact: true })}</span>
             </div>
           </div>
           <p className="text-[10px] text-slate-300 mt-3 italic border-t border-slate-50 pt-2">
-            Solo sucursales con datos en ambos años 2024 y 2025
+            {lflData.comparableMonths.length} mes{lflData.comparableMonths.length !== 1 ? "es" : ""} equiparables · solo tiendas con datos en ambos años
           </p>
         </motion.div>
 
@@ -576,20 +636,23 @@ export function KPIsContent({ data }: KPIsContentProps) {
           transition={{ delay: 0.38 }}
           className="lg:col-span-2 bg-white rounded-xl card-shadow p-5"
         >
-          <SectionHeader title="LFL por sucursal" subtitle="2024 vs 2025 · sucursales en ambos ejercicios" />
+          <SectionHeader
+            title="LFL por sucursal"
+            subtitle={`${lflData.yearA} vs ${lflData.yearB} · ${lflData.comparableMonths.length} meses equiparables · tiendas con datos en ambos años`}
+          />
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-slate-100">
                   <th className="text-left py-1.5 px-2 text-slate-400 font-medium">Sucursal</th>
-                  <th className="text-right py-1.5 px-2 text-slate-400 font-medium">2024</th>
-                  <th className="text-right py-1.5 px-2 text-slate-400 font-medium">2025</th>
+                  <th className="text-right py-1.5 px-2 text-slate-400 font-medium">{lflData.yearA}</th>
+                  <th className="text-right py-1.5 px-2 text-slate-400 font-medium">{lflData.yearB}</th>
                   <th className="text-right py-1.5 px-2 text-slate-400 font-medium">Variación</th>
                   <th className="text-left py-1.5 px-2 text-slate-400 font-medium w-24">Barra</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredLFLBranches.map((b, i) => (
+                {lflData.branches.map((b, i) => (
                   <motion.tr
                     key={b.id}
                     initial={{ opacity: 0, x: -6 }}
@@ -603,8 +666,8 @@ export function KPIsContent({ data }: KPIsContentProps) {
                         <span className="font-semibold text-slate-800">{b.nombre.replace("Deus Store ", "")}</span>
                       </div>
                     </td>
-                    <td className="py-2.5 px-2 text-right text-slate-500">{formatCurrency(b.rev2024, { compact: true })}</td>
-                    <td className="py-2.5 px-2 text-right font-bold text-slate-900">{formatCurrency(b.rev2025, { compact: true })}</td>
+                    <td className="py-2.5 px-2 text-right text-slate-500">{formatCurrency(b.revA, { compact: true })}</td>
+                    <td className="py-2.5 px-2 text-right font-bold text-slate-900">{formatCurrency(b.revB, { compact: true })}</td>
                     <td className={`py-2.5 px-2 text-right font-bold ${b.growth >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                       <span className="flex items-center justify-end gap-0.5">
                         {b.growth >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
@@ -623,6 +686,13 @@ export function KPIsContent({ data }: KPIsContentProps) {
                     </td>
                   </motion.tr>
                 ))}
+                {lflData.branches.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-4 text-center text-xs text-slate-400 italic">
+                      Sin tiendas con datos en ambos años para el período seleccionado
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -729,54 +799,55 @@ export function KPIsContent({ data }: KPIsContentProps) {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}>
         <SectionStrip icon={Box} kpis="12–13" title="Performance por SKU y Concentración del Surtido" color="rose" />
       </motion.div>
-      {isFiltered && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          className="overflow-hidden"
-        >
-          <div className="px-4 py-2.5 bg-amber-50 border border-amber-200/60 rounded-xl text-xs text-amber-700 flex items-center gap-2">
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            KPIs 12–13 muestran datos históricos globales — el análisis por SKU requiere el dataset completo para ser estadísticamente representativo.
-          </div>
-        </motion.div>
-      )}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Concentration cards */}
-        <div className="space-y-4">
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.52 }} className="bg-white rounded-xl card-shadow p-4">
-            <div className="flex items-start justify-between mb-2">
-              <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 13</span>
-              <StatusBadge status={getConcentrationStatus(k.top3Concentration)} label="Top 3" />
+        {(() => {
+          const c3  = isFiltered ? filteredConcentration.top3  : k.top3Concentration
+          const c10 = isFiltered ? filteredConcentration.top10 : k.top10Concentration
+          const c20 = isFiltered ? filteredConcentration.top20 : k.top20Concentration
+          return (
+            <div className="space-y-4">
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.52 }} className="bg-white rounded-xl card-shadow p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 13</span>
+                  <StatusBadge status={getConcentrationStatus(c3)} label="Top 3" />
+                </div>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">Concentración top 3</p>
+                <p className="text-3xl font-bold text-slate-900">{c3.toFixed(1)}%</p>
+                <p className="text-[10px] text-slate-400 mt-1">del ingreso{isFiltered ? " filtrado" : " total"}</p>
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }} className="bg-white rounded-xl card-shadow p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 13</span>
+                  <StatusBadge status={getConcentrationStatus(c10 / 3)} label="Top 10" />
+                </div>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">Concentración top 10</p>
+                <p className="text-3xl font-bold text-slate-900">{c10.toFixed(1)}%</p>
+                <p className="text-[10px] text-slate-400 mt-1">del ingreso{isFiltered ? " filtrado" : " total"}</p>
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.57 }} className="bg-white rounded-xl card-shadow p-4">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">Concentración top 20</p>
+                <p className="text-3xl font-bold text-slate-700">{c20.toFixed(1)}%</p>
+                <p className="text-[10px] text-slate-400 mt-1">{formatNumber(k.totalSKUs)} SKUs padre totales</p>
+              </motion.div>
             </div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">Concentración top 3</p>
-            <p className="text-3xl font-bold text-slate-900">{k.top3Concentration.toFixed(1)}%</p>
-            <p className="text-[10px] text-slate-400 mt-1">del ingreso total</p>
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55 }} className="bg-white rounded-xl card-shadow p-4">
-            <div className="flex items-start justify-between mb-2">
-              <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 13</span>
-              <StatusBadge status={getConcentrationStatus(k.top10Concentration / 3)} label="Top 10" />
-            </div>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">Concentración top 10</p>
-            <p className="text-3xl font-bold text-slate-900">{k.top10Concentration.toFixed(1)}%</p>
-            <p className="text-[10px] text-slate-400 mt-1">del ingreso total</p>
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.57 }} className="bg-white rounded-xl card-shadow p-4">
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-2">Concentración top 20</p>
-            <p className="text-3xl font-bold text-slate-700">{k.top20Concentration.toFixed(1)}%</p>
-            <p className="text-[10px] text-slate-400 mt-1">{formatNumber(k.totalSKUs)} SKUs padre totales</p>
-          </motion.div>
-        </div>
+          )
+        })()}
 
         {/* Top SKU table (KPI 12) */}
+        {(() => {
+          const displaySKUs = isFiltered ? filteredTopSKUs : k.topSKUs
+          return (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.53 }}
           className="lg:col-span-3 bg-white rounded-xl card-shadow p-5 overflow-x-auto"
         >
-          <SectionHeader title="Top 25 SKUs padre" subtitle="KPI 12 — SUM(importe_neto), margen y % descuento por estilo · datos globales" />
+          <SectionHeader
+            title="Top 25 SKUs padre"
+            subtitle={isFiltered ? "KPI 12 — período filtrado · top-200 SKUs rastreados · sucursales físicas" : "KPI 12 — SUM(importe_neto), margen y % descuento por estilo"}
+          />
           <table className="w-full text-xs mt-3">
             <thead>
               <tr className="border-b border-slate-100">
@@ -790,7 +861,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
               </tr>
             </thead>
             <tbody>
-              {k.topSKUs.map((sku, i) => (
+              {displaySKUs.map((sku, i) => (
                 <motion.tr
                   key={sku.sku_padre}
                   initial={{ opacity: 0 }}
@@ -823,6 +894,8 @@ export function KPIsContent({ data }: KPIsContentProps) {
             </tbody>
           </table>
         </motion.div>
+          )
+        })()}
       </div>
 
     </div>

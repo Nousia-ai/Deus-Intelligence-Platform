@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useMemo, useCallback, type ReactNode } from "react"
-import type { DashboardSummary, FilterState, MonthlyRevenue } from "@/lib/types"
+import type { DashboardSummary, FilterState, MonthlyRevenue, SKUMetrics } from "@/lib/types"
 import { MONTH_LABELS_ES, DAY_LABELS_ES, calcChange } from "@/lib/utils"
 
 interface DiscountKPIs {
@@ -45,6 +45,9 @@ interface FilterContextValue {
   filteredUPT: number
   // Filtered discount rate per category  { categoria → discountRate % }
   filteredCategoryDiscount: Record<string, number>
+  // Filtered SKU performance (physical branches, top-200 SKUs)
+  filteredTopSKUs: SKUMetrics[]
+  filteredConcentration: { top3: number; top10: number; top20: number }
 }
 
 const FilterContext = createContext<FilterContextValue | null>(null)
@@ -416,6 +419,44 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       filteredCategoryDiscount[cat] = val.totUnid > 0 ? (val.unidConDesc / val.totUnid) * 100 : 0
     }
 
+    // ── Filtered SKU metrics (top-200 SKUs, physical branches) ──────────────
+    const skuAccMap: Record<string, { revenue: number; units: number; unidConDesc: number; totUnid: number; grossMargin: number; importe_neto_mar: number }> = {}
+    for (const branchId of activeBranches) {
+      const bm = data.branchMonthSKUMatrix[branchId] || {}
+      for (const [key, skuMap] of Object.entries(bm)) {
+        const [year, month] = key.split("-").map(Number)
+        if (!activeYears.includes(year)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(month)) continue
+        for (const [sku, vals] of Object.entries(skuMap)) {
+          if (!skuAccMap[sku]) skuAccMap[sku] = { revenue: 0, units: 0, unidConDesc: 0, totUnid: 0, grossMargin: 0, importe_neto_mar: 0 }
+          skuAccMap[sku].revenue += vals.revenue
+          skuAccMap[sku].units += vals.units
+          skuAccMap[sku].unidConDesc += vals.unidConDesc
+          skuAccMap[sku].totUnid += vals.totUnid
+          skuAccMap[sku].grossMargin += vals.grossMargin
+          skuAccMap[sku].importe_neto_mar += vals.importe_neto_mar
+        }
+      }
+    }
+    const filteredSKUTotal = Object.values(skuAccMap).reduce((s, v) => s + v.revenue, 0)
+    const allFilteredSKUs: SKUMetrics[] = Object.entries(skuAccMap)
+      .map(([sku_padre, m]) => ({
+        sku_padre,
+        revenue: m.revenue,
+        units: m.units,
+        grossMargin: m.grossMargin,
+        marginPct: m.importe_neto_mar > 0 ? (m.grossMargin / m.importe_neto_mar) * 100 : 0,
+        discountPct: m.totUnid > 0 ? (m.unidConDesc / m.totUnid) * 100 : 0,
+        revenueShare: filteredSKUTotal > 0 ? (m.revenue / filteredSKUTotal) * 100 : 0,
+      }))
+      .sort((a, b) => b.revenue - a.revenue)
+    const filteredTopSKUs = allFilteredSKUs.slice(0, 25)
+    const filteredConcentration = {
+      top3: allFilteredSKUs.slice(0, 3).reduce((s, sk) => s + sk.revenueShare, 0),
+      top10: allFilteredSKUs.slice(0, 10).reduce((s, sk) => s + sk.revenueShare, 0),
+      top20: allFilteredSKUs.slice(0, 20).reduce((s, sk) => s + sk.revenueShare, 0),
+    }
+
     return {
       filteredRevenue,
       filteredUnits,
@@ -437,6 +478,8 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       filteredATV,
       filteredUPT,
       filteredCategoryDiscount,
+      filteredTopSKUs,
+      filteredConcentration,
     }
   }, [filter, data])
 

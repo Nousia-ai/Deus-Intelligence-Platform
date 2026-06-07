@@ -130,6 +130,13 @@ export type BranchMonthSizeMatrix = Record<string, Record<string, Record<string,
 // {sucursal_id: {"2025-1": {categoria: {tipo_producto: {rev, units}}}}}
 export type BranchMonthProductTypeMatrix = Record<string, Record<string, Record<string, Record<string, { rev: number; units: number }>>>>
 
+// {sucursal_id: {"2025-1": {sku_padre: {revenue, units, unidConDesc, totUnid, grossMargin, importe_neto_mar}}}}
+// Physical branches only, top-200 SKUs by physical-branch revenue
+export type BranchMonthSKUMatrix = Record<string, Record<string, Record<string, {
+  revenue: number; units: number; unidConDesc: number; totUnid: number
+  grossMargin: number; importe_neto_mar: number
+}>>>
+
 // {sucursal_id: {"2025-1": {grossMargin, importe_neto}}}
 export type BranchMonthMarginMatrix = Record<string, Record<string, { grossMargin: number; importe_neto: number }>>
 // {sucursal_id: {"2025-1": {categoria: {grossMargin, importe_neto}}}}
@@ -273,6 +280,8 @@ export interface DashboardSummary {
   branchMonthGenderMatrix: BranchMonthGenderMatrix
   branchMonthDayOfWeekMatrix: BranchMonthDayOfWeekMatrix
   branchMonthTicketCountMatrix: BranchMonthTicketCountMatrix
+  // SKU matrix — physical branches, top-200 SKUs (for filterable KPI 12/13)
+  branchMonthSKUMatrix: BranchMonthSKUMatrix
   // Producto distribution matrices (physical branches, filter-compatible)
   branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix
   branchMonthColorMatrix: BranchMonthColorMatrix

@@ -26,6 +26,7 @@ import type {
   BranchMonthGenderMatrix,
   BranchMonthDayOfWeekMatrix,
   BranchMonthTicketCountMatrix,
+  BranchMonthSKUMatrix,
   BranchMonthColorFamilyMatrix,
   BranchMonthColorMatrix,
   BranchMonthSizeMatrix,
@@ -683,6 +684,52 @@ export function computeDashboardSummary(): DashboardSummary {
     .sort((a, b) => b.revenue - a.revenue)
   const topSKUs = allSKUs.slice(0, 25)
 
+  // ── Branch × Month × SKU matrix (physical branches only, top 200 by physical revenue) ──
+  // Used for client-side filtering of KPI 12/13
+  const physSkuRevMap: Record<string, number> = {}
+  for (const r of rev) {
+    if (!PHYSICAL_BRANCHES.includes(r.sucursal_id)) continue
+    const s = r.sku_padre || r.sku || "SIN_SKU"
+    physSkuRevMap[s] = (physSkuRevMap[s] || 0) + r.importe_neto
+  }
+  const top200SKUSet = new Set(
+    Object.entries(physSkuRevMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 200)
+      .map(([sku]) => sku),
+  )
+  const branchMonthSKUMatrix: BranchMonthSKUMatrix = {}
+  // Revenue + discount pass
+  for (const r of rev) {
+    const s = r.sku_padre || r.sku || "SIN_SKU"
+    if (!top200SKUSet.has(s)) continue
+    if (!PHYSICAL_BRANCHES.includes(r.sucursal_id)) continue
+    if (!r.año || !r.mes) continue
+    const key = `${r.año}-${r.mes}`
+    if (!branchMonthSKUMatrix[r.sucursal_id]) branchMonthSKUMatrix[r.sucursal_id] = {}
+    if (!branchMonthSKUMatrix[r.sucursal_id][key]) branchMonthSKUMatrix[r.sucursal_id][key] = {}
+    if (!branchMonthSKUMatrix[r.sucursal_id][key][s]) {
+      branchMonthSKUMatrix[r.sucursal_id][key][s] = { revenue: 0, units: 0, unidConDesc: 0, totUnid: 0, grossMargin: 0, importe_neto_mar: 0 }
+    }
+    const slot = branchMonthSKUMatrix[r.sucursal_id][key][s]
+    slot.revenue += r.importe_neto
+    slot.units += r.unidades
+    slot.totUnid += r.unidades
+    if (r.tiene_descuento) slot.unidConDesc += r.unidades
+  }
+  // Margin pass (uses mar — excludes bundles + null cost)
+  for (const r of mar) {
+    const s = r.sku_padre || r.sku || "SIN_SKU"
+    if (!top200SKUSet.has(s)) continue
+    if (!PHYSICAL_BRANCHES.includes(r.sucursal_id)) continue
+    if (!r.año || !r.mes) continue
+    const key = `${r.año}-${r.mes}`
+    const slot = branchMonthSKUMatrix[r.sucursal_id]?.[key]?.[s]
+    if (!slot) continue
+    slot.grossMargin += r.importe_neto - r.costo_unitario! * r.unidades
+    slot.importe_neto_mar += r.importe_neto
+  }
+
   // KPI 13: Concentración
   const top3Concentration = allSKUs.slice(0, 3).reduce((s, sk) => s + sk.revenueShare, 0)
   const top10Concentration = allSKUs.slice(0, 10).reduce((s, sk) => s + sk.revenueShare, 0)
@@ -725,6 +772,7 @@ export function computeDashboardSummary(): DashboardSummary {
     branchMonthBrandMatrix,
     branchMonthPaymentMatrix, branchMonthGenderMatrix, branchMonthDayOfWeekMatrix,
     branchMonthTicketCountMatrix,
+    branchMonthSKUMatrix,
     branchMonthColorFamilyMatrix, branchMonthColorMatrix,
     branchMonthSizeMatrix, branchMonthProductTypeMatrix,
     colorFamilyMap,
