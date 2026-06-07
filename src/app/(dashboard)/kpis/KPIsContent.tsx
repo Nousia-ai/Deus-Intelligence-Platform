@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { motion } from "framer-motion"
 import {
   Target, TrendingUp, TrendingDown,
@@ -143,6 +143,9 @@ export function KPIsContent({ data }: KPIsContentProps) {
     () => filter.selectedBranches.length > 0 ? filter.selectedBranches : data.availableBranches.map((b) => b.id),
     [filter.selectedBranches, data.availableBranches],
   )
+
+  // ── SKU row expansion ────────────────────────────────────────────────────────
+  const [expandedSKU, setExpandedSKU] = useState<string | null>(null)
 
   // ── Discount KPIs (filtered or global) ──────────────────────────────────────
   const disc = isFiltered ? filteredDiscountKPIs : {
@@ -861,36 +864,63 @@ export function KPIsContent({ data }: KPIsContentProps) {
               </tr>
             </thead>
             <tbody>
-              {displaySKUs.map((sku, i) => (
-                <motion.tr
-                  key={sku.sku_padre}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.55 + i * 0.025 }}
-                  className="border-b border-slate-50 hover:bg-slate-50 transition-colors"
-                >
-                  <td className="py-1.5 px-2 text-slate-400 font-mono">{i + 1}</td>
-                  <td className="py-1.5 px-2">
-                    <span className="font-mono font-semibold text-slate-800 text-[11px]">{sku.sku_padre}</span>
-                  </td>
-                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">{formatCurrency(sku.revenue, { compact: true })}</td>
-                  <td className="py-1.5 px-2 text-right text-slate-500">{formatNumber(sku.units, { compact: true })}</td>
-                  <td className="py-1.5 px-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <div className="h-1.5 w-8 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full bg-indigo-400" style={{ width: `${Math.min(sku.revenueShare * 10, 100)}%` }} />
-                      </div>
-                      <span className="text-slate-600">{sku.revenueShare.toFixed(1)}%</span>
-                    </div>
-                  </td>
-                  <td className={`py-1.5 px-2 text-right font-semibold ${sku.marginPct > 0 ? (getMarginStatus(sku.marginPct) === "green" ? "text-emerald-600" : "text-amber-600") : "text-slate-400"}`}>
-                    {sku.marginPct > 0 ? formatPercentAbs(sku.marginPct) : "—"}
-                  </td>
-                  <td className={`py-1.5 px-2 text-right hidden lg:table-cell ${sku.discountPct > 25 ? "text-red-500 font-bold" : "text-slate-400"}`}>
-                    {sku.discountPct > 0 ? formatPercentAbs(sku.discountPct) : "0%"}
-                  </td>
-                </motion.tr>
-              ))}
+              {displaySKUs.map((sku, i) => {
+                const isExpanded = expandedSKU === sku.sku_padre
+                const articuloName = data.skuNameMap[sku.sku_padre]
+                return (
+                  <AnimatePresence key={sku.sku_padre} mode="wait">
+                    <motion.tr
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.55 + i * 0.025 }}
+                      onClick={() => setExpandedSKU(isExpanded ? null : sku.sku_padre)}
+                      className={`border-b border-slate-50 cursor-pointer transition-colors select-none ${isExpanded ? "bg-indigo-50/60" : "hover:bg-slate-50"}`}
+                    >
+                      <td className="py-1.5 px-2 text-slate-400 font-mono">{i + 1}</td>
+                      <td className="py-1.5 px-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono font-semibold text-slate-800 text-[11px]">{sku.sku_padre}</span>
+                          {articuloName && (
+                            <span className={`text-[10px] transition-colors ${isExpanded ? "text-indigo-500" : "text-slate-300 group-hover:text-slate-400"}`}>▾</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-1.5 px-2 text-right font-bold text-slate-900">{formatCurrency(sku.revenue, { compact: true })}</td>
+                      <td className="py-1.5 px-2 text-right text-slate-500">{formatNumber(sku.units, { compact: true })}</td>
+                      <td className="py-1.5 px-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <div className="h-1.5 w-8 bg-slate-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full bg-indigo-400" style={{ width: `${Math.min(sku.revenueShare * 10, 100)}%` }} />
+                          </div>
+                          <span className="text-slate-600">{sku.revenueShare.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className={`py-1.5 px-2 text-right font-semibold ${sku.marginPct > 0 ? (getMarginStatus(sku.marginPct) === "green" ? "text-emerald-600" : "text-amber-600") : "text-slate-400"}`}>
+                        {sku.marginPct > 0 ? formatPercentAbs(sku.marginPct) : "—"}
+                      </td>
+                      <td className={`py-1.5 px-2 text-right hidden lg:table-cell ${sku.discountPct > 25 ? "text-red-500 font-bold" : "text-slate-400"}`}>
+                        {sku.discountPct > 0 ? formatPercentAbs(sku.discountPct) : "0%"}
+                      </td>
+                    </motion.tr>
+                    {isExpanded && articuloName && (
+                      <motion.tr
+                        key={`${sku.sku_padre}-detail`}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.18 }}
+                      >
+                        <td colSpan={7} className="px-4 py-2 bg-indigo-50 border-b border-indigo-100">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-medium text-indigo-400 uppercase tracking-wide flex-shrink-0">Artículo</span>
+                            <span className="text-xs font-semibold text-indigo-800">{articuloName}</span>
+                          </div>
+                        </td>
+                      </motion.tr>
+                    )}
+                  </AnimatePresence>
+                )
+              })}
             </tbody>
           </table>
         </motion.div>

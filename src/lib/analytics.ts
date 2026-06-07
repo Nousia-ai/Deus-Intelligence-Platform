@@ -684,6 +684,13 @@ export function computeDashboardSummary(): DashboardSummary {
     .sort((a, b) => b.revenue - a.revenue)
   const topSKUs = allSKUs.slice(0, 25)
 
+  // ── SKU padre → nombre de artículo (primera ocurrencia) ─────────────────────
+  const skuNameMap: Record<string, string> = {}
+  for (const r of rev) {
+    const s = r.sku_padre || r.sku || "SIN_SKU"
+    if (!skuNameMap[s] && r.articulo) skuNameMap[s] = r.articulo
+  }
+
   // ── Branch × Month × SKU matrix (physical branches only, top 200 by physical revenue) ──
   // Used for client-side filtering of KPI 12/13
   const physSkuRevMap: Record<string, number> = {}
@@ -773,6 +780,7 @@ export function computeDashboardSummary(): DashboardSummary {
     branchMonthPaymentMatrix, branchMonthGenderMatrix, branchMonthDayOfWeekMatrix,
     branchMonthTicketCountMatrix,
     branchMonthSKUMatrix,
+    skuNameMap,
     branchMonthColorFamilyMatrix, branchMonthColorMatrix,
     branchMonthSizeMatrix, branchMonthProductTypeMatrix,
     colorFamilyMap,

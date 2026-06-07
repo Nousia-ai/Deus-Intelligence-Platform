@@ -282,6 +282,8 @@ export interface DashboardSummary {
   branchMonthTicketCountMatrix: BranchMonthTicketCountMatrix
   // SKU matrix — physical branches, top-200 SKUs (for filterable KPI 12/13)
   branchMonthSKUMatrix: BranchMonthSKUMatrix
+  // sku_padre → nombre de artículo (primer articulo visto por sku_padre)
+  skuNameMap: Record<string, string>
   // Producto distribution matrices (physical branches, filter-compatible)
   branchMonthColorFamilyMatrix: BranchMonthColorFamilyMatrix
   branchMonthColorMatrix: BranchMonthColorMatrix
