@@ -874,24 +874,24 @@ async function getSupabaseCache(): Promise<DashboardSummary | null> {
   }
 }
 
-async function setSupabaseCache(summary: DashboardSummary): Promise<void> {
-  if (!supabase) return
-  try {
-    const { error } = await supabase.from("dashboard_cache").upsert(
-      {
-        id: 1,
-        summary: summary as unknown as Record<string, unknown>,
-        computed_at: new Date().toISOString(),
-        source: "csv",
-        row_count: cachedData?.length ?? 0,
-      },
-      { onConflict: "id" }
-    )
-    if (error) throw error
-    console.log("[supabase-cache] guardado ✓ (%d filas)", cachedData?.length ?? 0)
-  } catch (err) {
-    console.error("[supabase-cache] error al escribir caché:", err)
-  }
+/**
+ * Escribe el DashboardSummary en Supabase. Solo llamar desde el endpoint
+ * POST /api/admin/seed-cache (awaited), nunca en el hot path de página.
+ */
+export async function setSupabaseCache(summary: DashboardSummary, source: "csv" | "erp" = "csv"): Promise<void> {
+  if (!supabase) throw new Error("Supabase no configurado")
+  const { error } = await supabase.from("dashboard_cache").upsert(
+    {
+      id: 1,
+      summary: summary as unknown as Record<string, unknown>,
+      computed_at: new Date().toISOString(),
+      source,
+      row_count: cachedData?.length ?? 0,
+    },
+    { onConflict: "id" }
+  )
+  if (error) throw error
+  console.log("[supabase-cache] guardado ✓ (%d filas fuente)", cachedData?.length ?? 0)
 }
 
 /**
@@ -914,13 +914,11 @@ export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> 
   }
 
   // Nivel 3: cómputo completo desde CSV (lento — solo primer arranque sin caché)
-  console.log("[analytics] computando desde CSV…")
-  const summary = computeDashboardSummary()
-
-  // Persistir en Supabase sin bloquear la respuesta al usuario
-  setSupabaseCache(summary).catch(console.error)
-
-  return summary
+  // Nota: no intentamos escribir a Supabase aquí porque el App Router de Next.js
+  // no garantiza que promesas no-bloqueantes completen después de enviar la respuesta.
+  // Para refrescar el caché usa POST /api/admin/seed-cache.
+  console.log("[analytics] computando desde CSV… (caché Supabase vacío o expirado)")
+  return computeDashboardSummary()
 }
 
 /**
