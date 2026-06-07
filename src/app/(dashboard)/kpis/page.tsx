@@ -1,10 +1,10 @@
 import { Header } from "@/components/layout/Header"
 import { PageTransition } from "@/components/layout/PageTransition"
 import { KPIsContent } from "./KPIsContent"
-import { computeDashboardSummary } from "@/lib/analytics"
+import { computeDashboardSummaryAsync } from "@/lib/analytics"
 
-export default function KPIsPage() {
-  const data = computeDashboardSummary()
+export default async function KPIsPage() {
+  const data = await computeDashboardSummaryAsync()
   return (
     <PageTransition>
       <div className="flex flex-col min-h-full">

@@ -1,10 +1,10 @@
 import { Header } from "@/components/layout/Header"
 import { PageTransition } from "@/components/layout/PageTransition"
 import { BranchContent } from "./BranchContent"
-import { computeDashboardSummary } from "@/lib/analytics"
+import { computeDashboardSummaryAsync } from "@/lib/analytics"
 
-export default function SucursalesPage() {
-  const data = computeDashboardSummary()
+export default async function SucursalesPage() {
+  const data = await computeDashboardSummaryAsync()
   return (
     <PageTransition>
       <div className="flex flex-col min-h-full">

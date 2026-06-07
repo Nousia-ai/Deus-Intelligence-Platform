@@ -1,6 +1,7 @@
 import fs from "fs"
 import path from "path"
 import Papa from "papaparse"
+import { supabase } from "./supabase"
 import type {
   SalesRecord,
   BranchMetrics,
@@ -832,4 +833,108 @@ function generateInsights(params: {
   if (deusBrand && deusBrand.share > 20) insights.push({ id: "own-brand", type: "opportunity", title: "Marca propia DEUS — actor principal", description: `DEUS representa el ${deusBrand.share.toFixed(1)}% del ingreso total. La marca propia es el motor estratégico del portafolio.`, metric: "Participación DEUS", metricValue: `${deusBrand.share.toFixed(1)}%`, priority: "medium" })
 
   return insights
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Capa de caché Supabase
+//
+// Arquitectura de tres niveles:
+//   1. cachedSummary (módulo Node.js) — O(1), vive mientras el proceso esté activo
+//   2. dashboard_cache (Supabase JSONB) — persiste entre deployments, ~200 ms
+//   3. Cómputo desde CSV — fallback lento, solo en cold-start sin caché
+//
+// TTL: 24 h. Uso de invalidateDashboardCache() para forzar recarga
+// (p.ej. después de cargar nuevos datos ERP en Phase 2).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 horas
+
+async function getSupabaseCache(): Promise<DashboardSummary | null> {
+  if (!supabase) return null
+  try {
+    const { data, error } = await supabase
+      .from("dashboard_cache")
+      .select("summary, computed_at")
+      .eq("id", 1)
+      .maybeSingle()
+
+    if (error || !data) return null
+
+    const age = Date.now() - new Date(data.computed_at).getTime()
+    if (age > CACHE_TTL_MS) {
+      console.log("[supabase-cache] caché expirado, recalculando…")
+      return null
+    }
+
+    console.log("[supabase-cache] hit ✓")
+    return data.summary as DashboardSummary
+  } catch (err) {
+    console.warn("[supabase-cache] error al leer caché:", err)
+    return null
+  }
+}
+
+async function setSupabaseCache(summary: DashboardSummary): Promise<void> {
+  if (!supabase) return
+  try {
+    const { error } = await supabase.from("dashboard_cache").upsert(
+      {
+        id: 1,
+        summary: summary as unknown as Record<string, unknown>,
+        computed_at: new Date().toISOString(),
+        source: "csv",
+        row_count: cachedData?.length ?? 0,
+      },
+      { onConflict: "id" }
+    )
+    if (error) throw error
+    console.log("[supabase-cache] guardado ✓ (%d filas)", cachedData?.length ?? 0)
+  } catch (err) {
+    console.error("[supabase-cache] error al escribir caché:", err)
+  }
+}
+
+/**
+ * Versión asíncrona de computeDashboardSummary con caché Supabase.
+ *
+ * Flujo:
+ *   módulo cache → Supabase cache → CSV computation → guardar en Supabase
+ *
+ * Úsala en todos los page.tsx con `await computeDashboardSummaryAsync()`.
+ */
+export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> {
+  // Nivel 1: caché en memoria del proceso (mismo cold-start)
+  if (cachedSummary) return cachedSummary
+
+  // Nivel 2: caché en Supabase (sobrevive redeployments)
+  const remote = await getSupabaseCache()
+  if (remote) {
+    cachedSummary = remote
+    return remote
+  }
+
+  // Nivel 3: cómputo completo desde CSV (lento — solo primer arranque sin caché)
+  console.log("[analytics] computando desde CSV…")
+  const summary = computeDashboardSummary()
+
+  // Persistir en Supabase sin bloquear la respuesta al usuario
+  setSupabaseCache(summary).catch(console.error)
+
+  return summary
+}
+
+/**
+ * Invalida tanto el caché en módulo como el de Supabase.
+ * Llamar después de cargar nuevos datos (ETL Phase 2+).
+ */
+export async function invalidateDashboardCache(): Promise<void> {
+  cachedSummary = null
+  cachedData = null
+  if (!supabase) return
+  try {
+    await supabase.from("dashboard_cache").delete().eq("id", 1)
+    console.log("[supabase-cache] caché invalidado ✓")
+  } catch (err) {
+    console.error("[supabase-cache] error al invalidar:", err)
+  }
 }

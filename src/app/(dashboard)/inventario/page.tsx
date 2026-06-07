@@ -1,10 +1,10 @@
 import { Header } from "@/components/layout/Header"
 import { PageTransition } from "@/components/layout/PageTransition"
 import { InventarioContent } from "./InventarioContent"
-import { computeDashboardSummary } from "@/lib/analytics"
+import { computeDashboardSummaryAsync } from "@/lib/analytics"
 
-export default function InventarioPage() {
-  const data = computeDashboardSummary()
+export default async function InventarioPage() {
+  const data = await computeDashboardSummaryAsync()
   return (
     <PageTransition>
       <div className="flex flex-col min-h-full">
