@@ -79,14 +79,16 @@ CREATE TABLE IF NOT EXISTS ventas_lineas (
   caja_prefix           TEXT           NOT NULL DEFAULT '',
   tienda                TEXT           NOT NULL DEFAULT '',
   canal                 TEXT           NOT NULL DEFAULT '',
-  unidades              NUMERIC(10,4)  NOT NULL DEFAULT 1,
-  precio_lista          NUMERIC(14,6)  NOT NULL DEFAULT 0,
-  precio_pagado         NUMERIC(14,6)  NOT NULL DEFAULT 0,
-  pct_descuento         NUMERIC(10,8)  NOT NULL DEFAULT 0,
-  monto_descuento       NUMERIC(14,6)  NOT NULL DEFAULT 0,
-  tiene_descuento       BOOLEAN        NOT NULL DEFAULT FALSE,
-  importe_neto          NUMERIC(14,4)  NOT NULL DEFAULT 0,
-  ticket_total          NUMERIC(14,4)  NOT NULL DEFAULT 0,
+  -- DOUBLE PRECISION = IEEE 754 float8, equivalente al number de JavaScript.
+  -- Nunca desborda independientemente del valor en el CSV.
+  unidades              DOUBLE PRECISION NOT NULL DEFAULT 1,
+  precio_lista          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  precio_pagado         DOUBLE PRECISION NOT NULL DEFAULT 0,
+  pct_descuento         DOUBLE PRECISION NOT NULL DEFAULT 0,
+  monto_descuento       DOUBLE PRECISION NOT NULL DEFAULT 0,
+  tiene_descuento       BOOLEAN          NOT NULL DEFAULT FALSE,
+  importe_neto          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  ticket_total          DOUBLE PRECISION NOT NULL DEFAULT 0,
   forma_cobro_principal TEXT           NOT NULL DEFAULT '',
   rango_precio          TEXT           NOT NULL DEFAULT '',
   anio                  SMALLINT       NOT NULL,         -- "año" en el CSV original
@@ -95,14 +97,14 @@ CREATE TABLE IF NOT EXISTS ventas_lineas (
   dia_semana            SMALLINT       NOT NULL,
 
   -- ── Costo e identificadores ────────────────────────────────────────────────
-  costo_unitario        NUMERIC(14,6),                  -- NULL cuando no disponible
+  costo_unitario        DOUBLE PRECISION,                -- NULL cuando no disponible
   sucursal_id           TEXT           NOT NULL DEFAULT '',
   sku_padre             TEXT           NOT NULL DEFAULT '',
   folio                 TEXT           NOT NULL DEFAULT '',
 
   -- ── Metadatos de deduplicación (del proceso de limpieza del CSV) ───────────
-  dup_group_size        NUMERIC(10,2)  NOT NULL DEFAULT 1,
-  n_duplicates          NUMERIC(10,2)  NOT NULL DEFAULT 0
+  dup_group_size        DOUBLE PRECISION NOT NULL DEFAULT 1,
+  n_duplicates          DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
 -- ── Índices para ventas_lineas ────────────────────────────────────────────────
