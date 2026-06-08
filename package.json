@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed:ventas": "tsx src/scripts/seed-ventas.ts",
+    "seed:cache": "tsx src/scripts/seed-cache.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
@@ -44,6 +46,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
+    "tsx": "^4.19.2",
     "typescript": "^5"
   }
 }
