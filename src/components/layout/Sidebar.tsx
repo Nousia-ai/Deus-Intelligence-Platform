@@ -62,56 +62,6 @@ const NAV_ITEMS = [
   },
 ]
 
-// ── Deus Stores logo — full wordmark ────────────────────────────────────────
-function DeusWordmark() {
-  return (
-    <svg
-      viewBox="0 0 172 56"
-      className="h-7 w-auto flex-shrink-0"
-      fill="none"
-      aria-label="Deus Stores"
-    >
-      {/* DEUS bold wordmark */}
-      <text
-        x="2"
-        y="38"
-        style={{
-          fontFamily: "var(--font-geist-sans, 'Geist', -apple-system, sans-serif)",
-          fontWeight: 800,
-          fontSize: 40,
-          letterSpacing: "-1px",
-        }}
-        fill="white"
-      >
-        DEUS
-      </text>
-      {/* Characteristic underline that curves up on the right — the brand signature */}
-      <path
-        d="M2,46 H148 Q162,46 162,32"
-        stroke="white"
-        strokeWidth="2.8"
-        strokeLinecap="round"
-        fill="none"
-      />
-      {/* STORES in tracked small-caps */}
-      <text
-        x="160"
-        y="55"
-        style={{
-          fontFamily: "var(--font-geist-sans, 'Geist', -apple-system, sans-serif)",
-          fontWeight: 500,
-          fontSize: 9.5,
-          letterSpacing: "3px",
-        }}
-        fill="rgba(255,255,255,0.55)"
-        textAnchor="end"
-      >
-        STORES
-      </text>
-    </svg>
-  )
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 
 export function Sidebar() {
@@ -171,7 +121,12 @@ export function Sidebar() {
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
         >
-          <DeusWordmark />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/deus-logo.svg"
+            alt="Deus Stores"
+            className="h-9 w-auto flex-shrink-0"
+          />
         </motion.div>
       </div>
 
