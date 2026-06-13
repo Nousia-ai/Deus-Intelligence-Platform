@@ -57,6 +57,10 @@ const PHYSICAL_BRANCHES = ["16S001", "ATL001", "CSU001", "CHO001", "CRZ001", "SN
 let cachedData: SalesRecord[] | null = null
 let cachedSummary: DashboardSummary | null = null
 
+// Fecha máxima cubierta por df_ventas_v4.csv  (Apr 2023 – May 2026).
+// Ventas con fecha POSTERIOR a esta constante provienen de ETL y se leen desde ventas_lineas.
+const CSV_MAX_DATE = "2026-05-31"
+
 function loadRawData(): SalesRecord[] {
   if (cachedData) return cachedData
 
@@ -199,6 +203,79 @@ async function loadRawDataFromSupabase(): Promise<SalesRecord[]> {
 
   console.log(`[analytics] ventas_lineas: ${rows.length} filas`)
   return rows
+}
+
+/**
+ * Carga ÚNICAMENTE las filas de ventas_lineas con fecha > afterDate.
+ * Consulta pequeña y rápida — usada para meses más recientes que el CSV.
+ */
+async function loadRecentDataFromSupabase(afterDate: string): Promise<SalesRecord[]> {
+  if (!supabase) return []
+  try {
+    const { data, error } = await supabase
+      .from("ventas_lineas")
+      .select(
+        "articulo,marca,marca_en_canonico,tipo_producto,categoria_macro," +
+        "color,familia_color,talla,tipo_talla,genero,material,corte,patron,sku," +
+        "es_marca_propia,es_multicolor,es_bundle,es_cortesia," +
+        "fecha,tienda,canal,unidades,precio_lista,precio_pagado," +
+        "pct_descuento,monto_descuento,tiene_descuento,importe_neto," +
+        "ticket_total,forma_cobro_principal,rango_precio," +
+        "anio,mes,semana,dia_semana,costo_unitario,sucursal_id,sku_padre"
+      )
+      .gt("fecha", afterDate)
+
+    if (error) {
+      console.warn("[analytics] loadRecent error:", error.message)
+      return []
+    }
+    if (!data || data.length === 0) return []
+
+    console.log(`[analytics] ventas_lineas recientes (>${afterDate}): ${data.length} filas`)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return data.map((r: any) => ({
+      articulo:              r.articulo              ?? "",
+      marca:                 r.marca                 ?? "",
+      marca_en_canonico:     r.marca_en_canonico     ?? "",
+      tipo_producto:         r.tipo_producto          ?? "",
+      categoria_macro:       r.categoria_macro        ?? "",
+      color:                 r.color                 ?? "",
+      familia_color:         r.familia_color          ?? "",
+      talla:                 r.talla                 ?? "",
+      tipo_talla:            r.tipo_talla             ?? "",
+      genero:                r.genero                ?? "",
+      material:              r.material              ?? "",
+      corte:                 r.corte                 ?? "",
+      patron:                r.patron                ?? "",
+      sku:                   r.sku                   ?? "",
+      es_marca_propia:       r.es_marca_propia        ?? false,
+      es_multicolor:         r.es_multicolor          ?? false,
+      es_bundle:             r.es_bundle              ?? false,
+      es_cortesia:           r.es_cortesia            ?? false,
+      fecha:                 r.fecha                 ?? "",
+      tienda:                r.tienda                ?? "",
+      canal:                 r.canal                 ?? "",
+      unidades:              r.unidades              ?? 1,
+      precio_lista:          r.precio_lista           ?? 0,
+      precio_pagado:         r.precio_pagado          ?? 0,
+      pct_descuento:         r.pct_descuento          ?? 0,
+      monto_descuento:       r.monto_descuento        ?? 0,
+      tiene_descuento:       r.tiene_descuento        ?? false,
+      importe_neto:          r.importe_neto           ?? 0,
+      ticket_total:          r.ticket_total           ?? 0,
+      forma_cobro_principal: r.forma_cobro_principal  ?? "",
+      rango_precio:          r.rango_precio           ?? "",
+      año:                   r.anio                  ?? 0,
+      mes:                   r.mes                   ?? 0,
+      semana:                r.semana                ?? 0,
+      dia_semana:            r.dia_semana             ?? 0,
+      costo_unitario:        r.costo_unitario         ?? null,
+      sucursal_id:           r.sucursal_id            ?? "",
+      sku_padre:             r.sku_padre              ?? "",
+    })) as SalesRecord[]
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -999,47 +1076,42 @@ export async function setSupabaseCache(summary: DashboardSummary, source: "csv" 
 /**
  * Versión asíncrona de computeDashboardSummary con caché Supabase.
  *
- * Flujo (4 niveles):
- *   1. Módulo cache (memoria, mismo cold-start)
- *   2. dashboard_cache en Supabase (sobrevive redeployments, TTL 24 h)
- *   3. ventas_lineas en Supabase (fuente de verdad post-ETL)
- *   4. CSV local (fallback — primer arranque o Supabase no disponible)
+ * Flujo (3 niveles):
+ *   1. dashboard_cache en Supabase (sobrevive redeployments, TTL 24 h)
+ *   2. Datos híbridos: CSV local (Apr 2023–May 2026) + ventas_lineas solo para
+ *      filas con fecha > CSV_MAX_DATE (junio 2026 en adelante, consulta pequeña)
+ *   3. Solo CSV (si Supabase no está disponible — nunca hay pérdida de historial)
  *
- * Para refrescar el caché tras un ETL: POST /api/admin/seed-cache
- * o llamar refreshDashboardFromSupabase() desde la página /carga.
+ * Para refrescar el caché tras un ETL: invalidateDashboardCache() + revalidatePath.
  */
 export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> {
-  // Nivel 1 ELIMINADO: el caché en módulo no es confiable en Next.js App Router —
-  // el API route y el server component pueden correr en contextos de módulo distintos,
-  // lo que hace que invalidateDashboardCache() no limpie el caché del server component.
-  // En su lugar, siempre verificamos Supabase (estado compartido externo).
-
-  // Nivel 2: caché en Supabase (estado compartido — siempre consistente)
+  // Nivel 2: caché en Supabase (estado compartido — sobrevive redeployments, TTL 24 h)
   const remote = await getSupabaseCache()
   if (remote) {
-    cachedSummary = remote  // Popula la memoria para computeDashboardSummary() sync interno
+    cachedSummary = remote
     return remote
   }
 
-  // Nivel 3: ventas_lineas en Supabase (fuente preferida — actualizable sin redeploy)
-  const sbData = await loadRawDataFromSupabase()
-  if (sbData.length > 0) {
-    console.log(`[analytics] computando desde ventas_lineas (${sbData.length} filas)…`)
-    cachedData = sbData
-    cachedSummary = null
-    const summary = computeDashboardSummary()
-    // Persistir al caché de Supabase (await — garantiza disponibilidad en la próxima visita)
-    try {
-      await setSupabaseCache(summary, "erp")
-    } catch (e) {
-      console.warn("[analytics] Supabase cache write failed:", e instanceof Error ? e.message : e)
-    }
-    return summary
-  }
+  // Nivel 3: datos híbridos
+  //   - CSV local  → historial completo Apr 2023 – May 2026 (rápido, nunca pierde datos)
+  //   - Supabase   → solo filas con fecha > CSV_MAX_DATE (Jun 2026+, consulta pequeña)
+  // Este enfoque garantiza que el historial siempre esté disponible aunque ventas_lineas
+  // esté vacío o parcialmente corrompido.
+  const csvData  = loadRawData()
+  const recent   = await loadRecentDataFromSupabase(CSV_MAX_DATE)
+  const allData  = recent.length > 0 ? [...csvData, ...recent] : csvData
+  console.log(`[analytics] híbrido: ${csvData.length} CSV + ${recent.length} Supabase recientes`)
 
-  // Nivel 4: fallback a CSV (Supabase no disponible o tabla vacía)
-  console.log("[analytics] fallback a CSV")
-  return computeDashboardSummary()
+  cachedData    = allData
+  cachedSummary = null
+  const summary = computeDashboardSummary()
+
+  try {
+    await setSupabaseCache(summary, "erp")
+  } catch (e) {
+    console.warn("[analytics] cache write failed:", e instanceof Error ? e.message : e)
+  }
+  return summary
 }
 
 /**
