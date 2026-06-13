@@ -107,6 +107,57 @@ CREATE TABLE IF NOT EXISTS ventas_lineas (
   n_duplicates          DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
+-- ── 4. inventory_kpis ────────────────────────────────────────────────────────
+-- KPIs de inventario por SKU-talla-sucursal generados por SUPABASE_ETL.ipynb.
+-- Fuente: Kardex .xlsx de 6 sucursales procesados por el pipeline de inventario.
+-- Re-ejecutar el notebook es idempotente gracias a UNIQUE(codigo, sucursal_key).
+CREATE TABLE IF NOT EXISTS inventory_kpis (
+  id                   BIGSERIAL  PRIMARY KEY,
+  codigo               TEXT       NOT NULL,
+  sku_padre            TEXT,
+  talla                TEXT,
+  descripcion          TEXT,
+  marca                TEXT,
+  tipo_producto        TEXT,
+  es_basico            SMALLINT   DEFAULT 0,
+  es_promo             SMALLINT   DEFAULT 0,
+  sucursal_key         TEXT       NOT NULL,
+  sucursal_nombre      TEXT,
+  periodo_inicio       DATE,
+  periodo_fin          DATE,
+  inv_ini_unidades     NUMERIC,
+  inv_fin_unidades     NUMERIC,
+  inv_ini_costo        NUMERIC,
+  inv_fin_costo        NUMERIC,
+  valor_inv_costo      NUMERIC,
+  unidades_vendidas    NUMERIC,
+  unidades_disponibles NUMERIC,
+  sell_through         NUMERIC,            -- [0, 1]
+  velocidad_semanal    NUMERIC,
+  semanas_activas      NUMERIC,
+  weeks_of_supply      NUMERIC,            -- NULL si sin ventas
+  dsi                  NUMERIC,            -- Days Sales Inventory
+  dias_en_piso         INTEGER,            -- NULL para básicos y promos
+  dias_sin_venta       INTEGER,            -- NULL para básicos y promos
+  bucket_aging         TEXT,               -- 0-30|31-60|61-90|91-180|180+|BÁSICO|PROMO|Sin fecha
+  demand_index         NUMERIC,
+  perfil_demanda       TEXT,               -- DONANTE | NEUTRAL | RECEPTORA
+  nivel_alerta         TEXT,               -- NULL | AMARILLA | NARANJA | ROJA
+  fuente_fecha         TEXT,               -- kardex | venta_proxy | desconocida
+  fecha_primera_entrada DATE,
+  fecha_ultima_venta   DATE,
+  updated_at           DATE       NOT NULL,
+  UNIQUE (codigo, sucursal_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inv_sucursal  ON inventory_kpis(sucursal_key);
+CREATE INDEX IF NOT EXISTS idx_inv_alerta    ON inventory_kpis(nivel_alerta) WHERE nivel_alerta IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_inv_sku_padre ON inventory_kpis(sku_padre);
+CREATE INDEX IF NOT EXISTS idx_inv_tipo      ON inventory_kpis(tipo_producto);
+CREATE INDEX IF NOT EXISTS idx_inv_marca     ON inventory_kpis(marca);
+CREATE INDEX IF NOT EXISTS idx_inv_bucket    ON inventory_kpis(bucket_aging);
+CREATE INDEX IF NOT EXISTS idx_inv_updated   ON inventory_kpis(updated_at);
+
 -- ── Índices para ventas_lineas ────────────────────────────────────────────────
 -- Optimizados para los patrones de consulta de analytics.ts
 

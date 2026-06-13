@@ -114,6 +114,108 @@ function loadRawData(): SalesRecord[] {
   return cachedData
 }
 
+// ── Supabase ventas_lineas loader ──────────────────────────────────────────────
+// Fetches all rows in pages of 10 K. Falls back gracefully when Supabase
+// is unavailable (returns []).  Column 'anio' in DB maps to 'año' in SalesRecord.
+
+const SUPABASE_PAGE_SIZE = 10_000
+
+async function loadRawDataFromSupabase(): Promise<SalesRecord[]> {
+  if (!supabase) return []
+
+  const rows: SalesRecord[] = []
+  let from = 0
+
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await supabase
+      .from("ventas_lineas")
+      .select(
+        "articulo,marca,marca_en_canonico,tipo_producto,categoria_macro," +
+        "color,familia_color,talla,tipo_talla,genero,material,corte,patron,sku," +
+        "es_marca_propia,es_multicolor,es_bundle,es_cortesia," +
+        "fecha,tienda,canal,unidades,precio_lista,precio_pagado," +
+        "pct_descuento,monto_descuento,tiene_descuento,importe_neto," +
+        "ticket_total,forma_cobro_principal,rango_precio," +
+        "anio,mes,semana,dia_semana,costo_unitario,sucursal_id,sku_padre"
+      )
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
+      .order("id")
+
+    if (error) {
+      console.error("[analytics] ventas_lineas fetch error:", error.message)
+      break
+    }
+    if (!data || data.length === 0) break
+
+    for (const r of data) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const row = r as any
+      rows.push({
+        articulo:              row.articulo              ?? "",
+        marca:                 row.marca                 ?? "",
+        marca_en_canonico:     row.marca_en_canonico     ?? "",
+        tipo_producto:         row.tipo_producto          ?? "",
+        categoria_macro:       row.categoria_macro        ?? "",
+        color:                 row.color                 ?? "",
+        familia_color:         row.familia_color          ?? "",
+        talla:                 row.talla                 ?? "",
+        tipo_talla:            row.tipo_talla             ?? "",
+        genero:                row.genero                ?? "",
+        material:              row.material              ?? "",
+        corte:                 row.corte                 ?? "",
+        patron:                row.patron                ?? "",
+        sku:                   row.sku                   ?? "",
+        es_marca_propia:       row.es_marca_propia        ?? false,
+        es_multicolor:         row.es_multicolor          ?? false,
+        es_bundle:             row.es_bundle              ?? false,
+        es_cortesia:           row.es_cortesia            ?? false,
+        fecha:                 row.fecha                 ?? "",
+        tienda:                row.tienda                ?? "",
+        canal:                 row.canal                 ?? "",
+        unidades:              row.unidades              ?? 1,
+        precio_lista:          row.precio_lista           ?? 0,
+        precio_pagado:         row.precio_pagado          ?? 0,
+        pct_descuento:         row.pct_descuento          ?? 0,
+        monto_descuento:       row.monto_descuento        ?? 0,
+        tiene_descuento:       row.tiene_descuento        ?? false,
+        importe_neto:          row.importe_neto           ?? 0,
+        ticket_total:          row.ticket_total           ?? 0,
+        forma_cobro_principal: row.forma_cobro_principal  ?? "",
+        rango_precio:          row.rango_precio           ?? "",
+        año:                   row.anio                  ?? 0,
+        mes:                   row.mes                   ?? 0,
+        semana:                row.semana                ?? 0,
+        dia_semana:            row.dia_semana             ?? 0,
+        costo_unitario:        row.costo_unitario         ?? null,
+        sucursal_id:           row.sucursal_id            ?? "",
+        sku_padre:             row.sku_padre              ?? "",
+      })
+    }
+
+    if (data.length < SUPABASE_PAGE_SIZE) break
+    from += SUPABASE_PAGE_SIZE
+  }
+
+  console.log(`[analytics] ventas_lineas: ${rows.length} filas`)
+  return rows
+}
+
+/**
+ * Carga ventas_lineas, recomputa el DashboardSummary y lo persiste en
+ * dashboard_cache con source="erp". Llamar desde /api/admin/seed-cache
+ * o desde la página /carga después de un ETL exitoso.
+ */
+export async function refreshDashboardFromSupabase(): Promise<DashboardSummary> {
+  const sbData = await loadRawDataFromSupabase()
+  if (sbData.length === 0) throw new Error("ventas_lineas vacío — carga datos primero")
+  cachedData = sbData
+  cachedSummary = null
+  const summary = computeDashboardSummary()
+  await setSupabaseCache(summary, "erp")
+  return summary
+}
+
 function getRevRecs(data: SalesRecord[]) {
   return data.filter((r) => !r.es_cortesia)
 }
@@ -897,10 +999,14 @@ export async function setSupabaseCache(summary: DashboardSummary, source: "csv" 
 /**
  * Versión asíncrona de computeDashboardSummary con caché Supabase.
  *
- * Flujo:
- *   módulo cache → Supabase cache → CSV computation → guardar en Supabase
+ * Flujo (4 niveles):
+ *   1. Módulo cache (memoria, mismo cold-start)
+ *   2. dashboard_cache en Supabase (sobrevive redeployments, TTL 24 h)
+ *   3. ventas_lineas en Supabase (fuente de verdad post-ETL)
+ *   4. CSV local (fallback — primer arranque o Supabase no disponible)
  *
- * Úsala en todos los page.tsx con `await computeDashboardSummaryAsync()`.
+ * Para refrescar el caché tras un ETL: POST /api/admin/seed-cache
+ * o llamar refreshDashboardFromSupabase() desde la página /carga.
  */
 export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> {
   // Nivel 1: caché en memoria del proceso (mismo cold-start)
@@ -913,11 +1019,17 @@ export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> 
     return remote
   }
 
-  // Nivel 3: cómputo completo desde CSV (lento — solo primer arranque sin caché)
-  // Nota: no intentamos escribir a Supabase aquí porque el App Router de Next.js
-  // no garantiza que promesas no-bloqueantes completen después de enviar la respuesta.
-  // Para refrescar el caché usa POST /api/admin/seed-cache.
-  console.log("[analytics] computando desde CSV… (caché Supabase vacío o expirado)")
+  // Nivel 3: ventas_lineas en Supabase (fuente preferida — actualizable sin redeploy)
+  const sbData = await loadRawDataFromSupabase()
+  if (sbData.length > 0) {
+    console.log(`[analytics] computando desde ventas_lineas (${sbData.length} filas)…`)
+    cachedData = sbData
+    cachedSummary = null
+    return computeDashboardSummary()
+  }
+
+  // Nivel 4: fallback a CSV (Supabase no disponible o tabla vacía)
+  console.log("[analytics] fallback a CSV")
   return computeDashboardSummary()
 }
 

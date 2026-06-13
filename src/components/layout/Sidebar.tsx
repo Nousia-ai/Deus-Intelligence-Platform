@@ -12,6 +12,8 @@ import {
   Tag,
   BarChart3,
   Target,
+  Zap,
+  Upload,
   ChevronLeft,
   PanelLeftOpen,
 } from "lucide-react"
@@ -55,10 +57,22 @@ const NAV_ITEMS = [
     sublabel: "Salud del stock",
   },
   {
+    href: "/decisiones",
+    icon: Zap,
+    label: "Decisiones",
+    sublabel: "Acciones de la semana",
+  },
+  {
     href: "/kpis",
     icon: Target,
     label: "KPIs CEO",
     sublabel: "13 métricas estratégicas",
+  },
+  {
+    href: "/carga",
+    icon: Upload,
+    label: "Carga de Datos",
+    sublabel: "ETL desde Microsip ERP",
   },
 ]
 

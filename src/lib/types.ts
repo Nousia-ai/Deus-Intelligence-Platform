@@ -231,6 +231,77 @@ export interface CEOKPIs {
   top20Concentration: number
 }
 
+// ── Inventory KPI types (inventory_kpis table) ────────────────────────────────
+export type AlertLevel = 'ROJA' | 'NARANJA' | 'AMARILLA'
+export type DemandProfile = 'DONANTE' | 'NEUTRAL' | 'RECEPTORA'
+
+export interface InventoryKPI {
+  id: number
+  codigo: string
+  sku_padre: string | null
+  talla: string | null
+  descripcion: string | null
+  marca: string | null
+  tipo_producto: string | null
+  es_basico: number
+  es_promo: number
+  sucursal_key: string
+  sucursal_nombre: string | null
+  periodo_inicio: string | null
+  periodo_fin: string | null
+  inv_ini_unidades: number | null
+  inv_fin_unidades: number | null
+  inv_ini_costo: number | null
+  inv_fin_costo: number | null
+  valor_inv_costo: number | null
+  unidades_vendidas: number | null
+  unidades_disponibles: number | null
+  sell_through: number | null
+  velocidad_semanal: number | null
+  semanas_activas: number | null
+  weeks_of_supply: number | null
+  dsi: number | null
+  dias_en_piso: number | null
+  dias_sin_venta: number | null
+  bucket_aging: string | null
+  demand_index: number | null
+  perfil_demanda: DemandProfile | null
+  nivel_alerta: AlertLevel | null
+  fuente_fecha: string | null
+  fecha_primera_entrada: string | null
+  fecha_ultima_venta: string | null
+  updated_at: string
+}
+
+export interface AlertSummary {
+  nivel: AlertLevel
+  skus: number
+  valor_en_riesgo: number
+  sucursales: string[]
+}
+
+export interface TransferCandidate {
+  sku_padre: string
+  descripcion: string | null
+  marca: string | null
+  tipo_producto: string | null
+  donante_key: string
+  donante_nombre: string | null
+  donante_stock: number
+  receptora_key: string
+  receptora_nombre: string | null
+  receptora_stock: number
+  unidades_a_transferir: number
+}
+
+export interface WeeksOfSupplyRow {
+  sucursal_key: string
+  sucursal_nombre: string | null
+  tipo_producto: string
+  avg_weeks_of_supply: number
+  skus: number
+}
+
 export interface FilterState {
   selectedBranches: string[]   // empty = all physical branches
   selectedYears: number[]      // empty = all years

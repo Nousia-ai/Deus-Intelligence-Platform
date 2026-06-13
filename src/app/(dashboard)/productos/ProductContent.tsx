@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Package, Filter, ChevronDown, ChevronRight } from "lucide-react"
+import { Package, Filter, ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { PageHeader, SectionHeader } from "@/components/layout/PageHeader"
 import { InsightCard } from "@/components/cards/InsightCard"
 import { CategoryPieChart } from "@/components/charts/BranchChart"
@@ -151,6 +151,7 @@ export function ProductContent({ data }: ProductContentProps) {
   const [metric, setMetric] = useState<Metric>("revenue")
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string>("")
+  const [trendFilter, setTrendFilter] = useState<"all" | "up" | "down">("all")
 
   // ── Active filter params (reused across memos) ────────────────────────────
   const activeBranches = useMemo(
@@ -360,6 +361,86 @@ export function ProductContent({ data }: ProductContentProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, data])
 
+  // ── Trending WoW (last 2 available months, filter-aware branches) ────────
+  const { trendingRows, latestLabel, prevLabel } = useMemo(() => {
+    const allKeys = new Set<string>()
+    for (const bData of Object.values(data.branchMonthSKUMatrix)) {
+      for (const k of Object.keys(bData)) allKeys.add(k)
+    }
+    const sorted = [...allKeys].sort((a, b) => {
+      const [ay, am] = a.split("-").map(Number)
+      const [by, bm] = b.split("-").map(Number)
+      return ay !== by ? ay - by : am - bm
+    })
+    const latestKey = sorted[sorted.length - 1]
+    const prevKey = sorted[sorted.length - 2]
+
+    const MONTHS_ES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+    const fmtKey = (k: string) => {
+      const [y, m] = k.split("-").map(Number)
+      return `${MONTHS_ES[m - 1]} ${y}`
+    }
+
+    const thisMo: Record<string, number> = {}
+    const prevMo: Record<string, number> = {}
+    for (const [branch, monthMap] of Object.entries(data.branchMonthSKUMatrix)) {
+      if (!activeBranches.includes(branch)) continue
+      for (const [sku, v] of Object.entries(monthMap[latestKey] ?? {})) {
+        thisMo[sku] = (thisMo[sku] ?? 0) + v.units
+      }
+      for (const [sku, v] of Object.entries(monthMap[prevKey] ?? {})) {
+        prevMo[sku] = (prevMo[sku] ?? 0) + v.units
+      }
+    }
+
+    const rows = Object.entries(thisMo)
+      .map(([sku, units]) => {
+        const prev = prevMo[sku] ?? 0
+        const change = units - prev
+        const pctChange = prev > 0 ? change / prev : units > 0 ? 1 : 0
+        const trend: "up" | "down" | "stable" =
+          change > Math.max(prev * 0.1, 1) ? "up" : change < -Math.max(prev * 0.1, 1) ? "down" : "stable"
+        return { sku, units, prev, change, pctChange, trend, name: data.skuNameMap[sku] ?? sku }
+      })
+      .sort((a, b) => b.units - a.units)
+      .slice(0, 30)
+
+    return { trendingRows: rows, latestLabel: latestKey ? fmtKey(latestKey) : "—", prevLabel: prevKey ? fmtKey(prevKey) : "—" }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, activeBranches])
+
+  const visibleTrending = useMemo(
+    () => trendingRows.filter((r) => trendFilter === "all" || r.trend === trendFilter).slice(0, 20),
+    [trendingRows, trendFilter],
+  )
+
+  // ── SKU × Sucursal heatmap (top 15 SKUs, filter-aware) ────────────────────
+  const skuBranchHeatmap = useMemo(() => {
+    const skuTotals: Record<string, number> = {}
+    const grid: Record<string, Record<string, number>> = {}
+    for (const [branch, monthMap] of Object.entries(data.branchMonthSKUMatrix)) {
+      if (!activeBranches.includes(branch)) continue
+      for (const [key, skuMap] of Object.entries(monthMap)) {
+        const [y, m] = key.split("-").map(Number)
+        if (!activeYears.includes(y)) continue
+        if (activeMonths.length > 0 && !activeMonths.includes(m)) continue
+        for (const [sku, v] of Object.entries(skuMap)) {
+          skuTotals[sku] = (skuTotals[sku] ?? 0) + v.units
+          if (!grid[sku]) grid[sku] = {}
+          grid[sku][branch] = (grid[sku][branch] ?? 0) + v.units
+        }
+      }
+    }
+    const topSKUs = Object.entries(skuTotals).sort(([, a], [, b]) => b - a).slice(0, 15).map(([s]) => s)
+    const allVals = topSKUs.flatMap((s) => activeBranches.map((b) => grid[s]?.[b] ?? 0)).filter((v) => v > 0)
+    allVals.sort((a, b) => a - b)
+    const q1 = allVals[Math.floor(allVals.length * 0.25)] ?? 0
+    const q2 = allVals[Math.floor(allVals.length * 0.5)] ?? 0
+    const q3 = allVals[Math.floor(allVals.length * 0.75)] ?? 0
+    return { topSKUs, grid, q1, q2, q3 }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, activeBranches, activeYears, activeMonths, filter])
+
   // ── Existing category display ────────────────────────────────────────────
   const displayCategories = isFiltered
     ? filteredCategoryRevenue.map((fc) => {
@@ -414,6 +495,85 @@ export function ProductContent({ data }: ProductContentProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Trending WoW ─────────────────────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="bg-white rounded-xl card-shadow overflow-hidden"
+      >
+        <div className="p-5 border-b border-slate-100">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <SectionHeader
+              title={`Trending esta semana · ${latestLabel} vs ${prevLabel}`}
+              subtitle="Top 20 SKUs por velocidad de ventas — comparación mes a mes"
+            />
+            <div className="flex gap-1">
+              {(["all", "up", "down"] as const).map((f) => {
+                const Icon = f === "up" ? TrendingUp : f === "down" ? TrendingDown : Minus
+                const label = f === "up" ? "Subiendo" : f === "down" ? "Bajando" : "Todos"
+                const color = f === "up" ? "text-emerald-600" : f === "down" ? "text-red-500" : "text-slate-600"
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setTrendFilter(f)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                      trendFilter === f ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    }`}
+                  >
+                    <Icon className={`w-3 h-3 ${trendFilter === f ? "text-white" : color}`} />
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left py-2.5 pl-5 pr-2 text-[10px] font-semibold text-slate-400 uppercase w-8">#</th>
+                <th className="text-left py-2.5 px-2 text-[10px] font-semibold text-slate-400 uppercase">SKU / Nombre</th>
+                <th className="text-right py-2.5 px-3 text-[10px] font-semibold text-slate-400 uppercase">{latestLabel}</th>
+                <th className="text-right py-2.5 px-3 text-[10px] font-semibold text-slate-400 uppercase">{prevLabel}</th>
+                <th className="text-right py-2.5 px-3 text-[10px] font-semibold text-slate-400 uppercase">Cambio</th>
+                <th className="text-center py-2.5 px-4 text-[10px] font-semibold text-slate-400 uppercase">Tendencia</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {visibleTrending.map((r, i) => (
+                <tr key={r.sku} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="pl-5 pr-2 py-2.5 text-slate-400 font-mono text-[10px]">{i + 1}</td>
+                  <td className="px-2 py-2.5">
+                    <p className="font-medium text-slate-800 truncate max-w-[220px]">{r.name}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{r.sku}</p>
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-bold text-slate-900 tabular-nums">{formatNumber(r.units)}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-400 tabular-nums">{formatNumber(r.prev)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">
+                    <span className={`font-semibold ${r.change > 0 ? "text-emerald-600" : r.change < 0 ? "text-red-500" : "text-slate-400"}`}>
+                      {r.change > 0 ? "+" : ""}{formatNumber(r.change)}
+                    </span>
+                    <span className={`text-[10px] ml-1 ${r.change > 0 ? "text-emerald-500" : r.change < 0 ? "text-red-400" : "text-slate-400"}`}>
+                      {r.pctChange > 0 ? "+" : ""}{(r.pctChange * 100).toFixed(0)}%
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-center">
+                    {r.trend === "up" && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full"><TrendingUp className="w-3 h-3" />subiendo</span>}
+                    {r.trend === "down" && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded-full"><TrendingDown className="w-3 h-3" />bajando</span>}
+                    {r.trend === "stable" && <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full"><Minus className="w-3 h-3" />estable</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {visibleTrending.length === 0 && (
+            <p className="py-8 text-center text-sm text-slate-400">Sin datos para el filtro actual</p>
+          )}
+        </div>
+      </motion.div>
 
       {/* ── Category table + Pie ─────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -743,6 +903,71 @@ export function ProductContent({ data }: ProductContentProps) {
             )}
           </motion.div>
         </AnimatePresence>
+      </motion.div>
+
+      {/* ── SKU × Sucursal heatmap ───────────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        className="bg-white rounded-xl card-shadow overflow-hidden"
+      >
+        <div className="p-5 border-b border-slate-100">
+          <SectionHeader
+            title="Concentración SKU × Sucursal"
+            subtitle="Top 15 SKUs · unidades vendidas por punto de venta — identifica gaps de distribución"
+          />
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] text-slate-400">
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-100 inline-block border border-slate-200" />sin ventas</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-100 inline-block" />Q1</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-300 inline-block" />Q2</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-500 inline-block" />Q3</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-indigo-700 inline-block" />Q4</span>
+          </div>
+        </div>
+        <div className="overflow-x-auto p-4">
+          <table className="text-xs border-separate border-spacing-1">
+            <thead>
+              <tr>
+                <th className="text-left text-[10px] font-semibold text-slate-400 px-2 py-1 max-w-[180px]">SKU</th>
+                {activeBranches.map((b) => (
+                  <th key={b} className="text-center text-[10px] font-semibold text-slate-500 px-1 py-1 w-14">{b}</th>
+                ))}
+                <th className="text-right text-[10px] font-semibold text-slate-400 px-2 py-1">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {skuBranchHeatmap.topSKUs.map((sku) => {
+                const total = activeBranches.reduce((s, b) => s + (skuBranchHeatmap.grid[sku]?.[b] ?? 0), 0)
+                return (
+                  <tr key={sku}>
+                    <td className="text-[11px] text-slate-600 px-2 py-1 max-w-[180px]">
+                      <p className="truncate font-medium">{data.skuNameMap[sku] ?? sku}</p>
+                      <p className="text-[9px] text-slate-400">{sku}</p>
+                    </td>
+                    {activeBranches.map((b) => {
+                      const v = skuBranchHeatmap.grid[sku]?.[b] ?? 0
+                      const cls =
+                        v === 0 ? "bg-slate-100 text-slate-300" :
+                        v <= skuBranchHeatmap.q1 ? "bg-indigo-100 text-indigo-600" :
+                        v <= skuBranchHeatmap.q2 ? "bg-indigo-300 text-indigo-900" :
+                        v <= skuBranchHeatmap.q3 ? "bg-indigo-500 text-white" :
+                        "bg-indigo-700 text-white"
+                      return (
+                        <td key={b} className="text-center py-1 px-0.5">
+                          <span className={`inline-block w-12 text-[11px] font-semibold rounded py-1 tabular-nums ${cls}`}>
+                            {v > 0 ? formatNumber(v, { compact: true }) : "—"}
+                          </span>
+                        </td>
+                      )
+                    })}
+                    <td className="text-right text-[11px] font-bold text-slate-700 px-2 tabular-nums">{formatNumber(total, { compact: true })}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </motion.div>
 
       {/* ── Brands performance (existing) ────────────────────────────────── */}

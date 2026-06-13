@@ -8,7 +8,12 @@
  * Ejemplo: curl -X POST https://tu-dominio.vercel.app/api/admin/seed-cache
  */
 import { NextResponse } from "next/server"
-import { computeDashboardSummary, invalidateDashboardCache, setSupabaseCache } from "@/lib/analytics"
+import {
+  computeDashboardSummary,
+  invalidateDashboardCache,
+  setSupabaseCache,
+  refreshDashboardFromSupabase,
+} from "@/lib/analytics"
 import { supabase, isSupabaseReady } from "@/lib/supabase"
 
 export async function GET() {
@@ -39,7 +44,7 @@ export async function GET() {
   return NextResponse.json({ env: envStatus, cache })
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   if (!isSupabaseReady()) {
     return NextResponse.json(
       { error: "Supabase no configurado — verificar SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY" },
@@ -47,24 +52,31 @@ export async function POST() {
     )
   }
 
+  const body = await request.json().catch(() => ({})) as { source?: string }
+  const useSupabase = body.source === "supabase"
   const t0 = Date.now()
 
   try {
-    // 1. Limpiar módulo cache para forzar relectura del CSV
     await invalidateDashboardCache()
 
-    // 2. Computar desde CSV (tarda ~15-17 s con el CSV actual de 70 MB)
-    console.log("[seed-cache] Computando desde CSV…")
-    const summary = computeDashboardSummary()
-
-    // 3. Escribir en Supabase (awaited — necesitamos la confirmación)
-    await setSupabaseCache(summary, "csv")
+    let summary
+    if (useSupabase) {
+      // Carga desde ventas_lineas (fuente de verdad post-ETL)
+      console.log("[seed-cache] Computando desde ventas_lineas…")
+      summary = await refreshDashboardFromSupabase()
+    } else {
+      // Fallback: carga desde CSV local
+      console.log("[seed-cache] Computando desde CSV…")
+      summary = computeDashboardSummary()
+      await setSupabaseCache(summary, "csv")
+    }
 
     const duration = Date.now() - t0
-    console.log(`[seed-cache] OK en ${duration} ms`)
+    console.log(`[seed-cache] OK en ${duration} ms (source: ${useSupabase ? "supabase" : "csv"})`)
 
     return NextResponse.json({
       ok: true,
+      source: useSupabase ? "supabase" : "csv",
       duration_ms: duration,
       totalRevenue: summary.totalRevenue,
       years: summary.availableYears,
