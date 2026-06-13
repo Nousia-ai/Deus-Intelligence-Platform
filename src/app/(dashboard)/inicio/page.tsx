@@ -3,6 +3,8 @@ import { PageTransition } from "@/components/layout/PageTransition"
 import { DashboardContent } from "./DashboardContent"
 import { computeDashboardSummaryAsync } from "@/lib/analytics"
 
+export const dynamic = "force-dynamic"
+
 export default async function InicioPage() {
   const data = await computeDashboardSummaryAsync()
   return (

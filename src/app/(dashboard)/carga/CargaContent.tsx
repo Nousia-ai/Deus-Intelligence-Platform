@@ -41,7 +41,6 @@ interface UploadResult {
   duration_ms?: number
   etl_run_id?: number
   sucursal_dist?: Record<string, number>
-  dashboard_refreshed?: boolean
 }
 
 interface InventarioSucursalStatus {
@@ -389,22 +388,15 @@ function UploadCard({
                     </p>
                   </div>
                 )}
-                {result.dashboard_refreshed ? (
-                  <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-                    <p className="text-[10px] text-emerald-700 font-medium">
-                      Dashboard actualizado — los datos ya están disponibles en Resumen
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-px" />
-                    <p className="text-[10px] text-amber-700">
-                      Dashboard no recalculado. Ve a Resumen y presiona{" "}
-                      <span className="font-semibold">F5</span> para forzar la recarga.
-                    </p>
-                  </div>
-                )}
+                <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                  <p className="text-[10px] text-emerald-700 font-medium">
+                    Datos listos —{" "}
+                    <a href="/inicio" className="underline font-semibold">
+                      ver en Resumen
+                    </a>
+                  </p>
+                </div>
               </div>
             )
           })()}
@@ -652,6 +644,76 @@ export function CargaContent({ logs, ventasUltimaFecha, inventarioStatus }: Carg
       {/* ETL history */}
       <EtlHistory logs={logs} />
 
+      {/* Recovery tool */}
+      <SeedCsvPanel />
+
+    </div>
+  )
+}
+
+// ─── Recovery: seed from CSV ──────────────────────────────────────────────────
+
+function SeedCsvPanel() {
+  const router = useRouter()
+  const [state, setState] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [result, setResult] = useState<{ rows_inserted?: number; fecha_min?: string; fecha_max?: string; duration_ms?: number; error?: string } | null>(null)
+
+  const doSeed = async () => {
+    setState("loading")
+    setResult(null)
+    try {
+      const res = await fetch("/api/admin/seed-csv", { method: "POST" })
+      const data = await res.json()
+      setResult(data)
+      setState(data.ok ? "success" : "error")
+      if (data.ok) router.refresh()
+    } catch (err) {
+      setResult({ error: err instanceof Error ? err.message : "Error de red" })
+      setState("error")
+    }
+  }
+
+  return (
+    <div className="border border-dashed border-slate-200 rounded-xl px-4 py-3">
+      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.07em] mb-2">
+        Recuperación de datos
+      </p>
+      {state === "idle" && (
+        <div className="flex items-start gap-3">
+          <p className="text-[11px] text-slate-500 flex-1 leading-relaxed">
+            Si <code className="bg-slate-100 px-1 rounded text-slate-700">ventas_lineas</code> está vacío o incompleto,
+            puedes restablecer los datos históricos del CSV base (Abr 2023 – May 2026).
+          </p>
+          <button
+            onClick={doSeed}
+            className="flex-shrink-0 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 border border-indigo-200 hover:border-indigo-400 rounded-lg px-3 py-1.5 transition-colors bg-indigo-50 hover:bg-indigo-100"
+          >
+            Restaurar CSV
+          </button>
+        </div>
+      )}
+      {state === "loading" && (
+        <div className="flex items-center gap-2 py-1">
+          <RefreshCw className="w-3.5 h-3.5 text-indigo-400 animate-spin flex-shrink-0" />
+          <p className="text-[11px] text-slate-500">Importando 185,318 filas desde CSV — puede tardar 1-2 minutos…</p>
+        </div>
+      )}
+      {state === "success" && result && (
+        <div className="flex items-start gap-2">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-px" />
+          <div className="text-[11px] text-emerald-700">
+            <span className="font-semibold">{fmtNum(result.rows_inserted ?? 0)} filas restauradas</span>
+            {result.fecha_min && <> · {result.fecha_min} → {result.fecha_max}</>}
+            {result.duration_ms && <> · {(result.duration_ms / 1000).toFixed(1)}s</>}
+          </div>
+        </div>
+      )}
+      {state === "error" && result && (
+        <div className="flex items-start gap-2">
+          <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-px" />
+          <p className="text-[11px] text-red-600">{result.error}</p>
+        </div>
+      )}
     </div>
   )
 }

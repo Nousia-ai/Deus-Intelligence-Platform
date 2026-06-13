@@ -19,7 +19,8 @@
 import { NextResponse } from "next/server"
 import { supabase, isSupabaseReady } from "@/lib/supabase"
 import { parseVentasXlsx, TIPO_CATEGORIA } from "@/lib/etl/ventas-parser"
-import { invalidateDashboardCache, refreshDashboardFromSupabase } from "@/lib/analytics"
+import { invalidateDashboardCache } from "@/lib/analytics"
+import { revalidatePath } from "next/cache"
 
 export const runtime   = "nodejs"
 export const maxDuration = 60
@@ -223,16 +224,9 @@ export async function POST(request: Request) {
       sucursal_dist[r.sucursal_id] = (sucursal_dist[r.sucursal_id] || 0) + 1
     }
 
-    // ── Invalidar caché y recomputar con los datos recién insertados ──────────
+    // ── Invalidar caché — la próxima visita a /inicio recargará datos frescos ──
     await invalidateDashboardCache()
-    let dashboard_refreshed = false
-    try {
-      await refreshDashboardFromSupabase()
-      dashboard_refreshed = true
-      console.log("[carga/ventas] dashboard_cache rebuilt ✓")
-    } catch (e) {
-      console.warn("[carga/ventas] dashboard refresh failed:", e instanceof Error ? e.message : e)
-    }
+    revalidatePath("/inicio")
 
     // ── Actualizar etl_log ────────────────────────────────────────────────────
     await finishLog("success", {
@@ -253,7 +247,6 @@ export async function POST(request: Request) {
       transacciones: parsed.transacciones,
       skus_enriquecidos: productMap.size,
       sucursal_dist,
-      dashboard_refreshed,
       duration_ms: duration,
       etl_run_id: etlRunId,
     })

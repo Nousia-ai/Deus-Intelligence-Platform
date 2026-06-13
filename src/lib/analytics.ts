@@ -1009,13 +1009,15 @@ export async function setSupabaseCache(summary: DashboardSummary, source: "csv" 
  * o llamar refreshDashboardFromSupabase() desde la página /carga.
  */
 export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> {
-  // Nivel 1: caché en memoria del proceso (mismo cold-start)
-  if (cachedSummary) return cachedSummary
+  // Nivel 1 ELIMINADO: el caché en módulo no es confiable en Next.js App Router —
+  // el API route y el server component pueden correr en contextos de módulo distintos,
+  // lo que hace que invalidateDashboardCache() no limpie el caché del server component.
+  // En su lugar, siempre verificamos Supabase (estado compartido externo).
 
-  // Nivel 2: caché en Supabase (sobrevive redeployments)
+  // Nivel 2: caché en Supabase (estado compartido — siempre consistente)
   const remote = await getSupabaseCache()
   if (remote) {
-    cachedSummary = remote
+    cachedSummary = remote  // Popula la memoria para computeDashboardSummary() sync interno
     return remote
   }
 
@@ -1025,7 +1027,14 @@ export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> 
     console.log(`[analytics] computando desde ventas_lineas (${sbData.length} filas)…`)
     cachedData = sbData
     cachedSummary = null
-    return computeDashboardSummary()
+    const summary = computeDashboardSummary()
+    // Persistir al caché de Supabase (await — garantiza disponibilidad en la próxima visita)
+    try {
+      await setSupabaseCache(summary, "erp")
+    } catch (e) {
+      console.warn("[analytics] Supabase cache write failed:", e instanceof Error ? e.message : e)
+    }
+    return summary
   }
 
   // Nivel 4: fallback a CSV (Supabase no disponible o tabla vacía)
@@ -1041,10 +1050,10 @@ export async function invalidateDashboardCache(): Promise<void> {
   cachedSummary = null
   cachedData = null
   if (!supabase) return
-  try {
-    await supabase.from("dashboard_cache").delete().eq("id", 1)
+  const { error } = await supabase.from("dashboard_cache").delete().eq("id", 1)
+  if (error) {
+    console.error("[supabase-cache] error al invalidar:", error.message)
+  } else {
     console.log("[supabase-cache] caché invalidado ✓")
-  } catch (err) {
-    console.error("[supabase-cache] error al invalidar:", err)
   }
 }
