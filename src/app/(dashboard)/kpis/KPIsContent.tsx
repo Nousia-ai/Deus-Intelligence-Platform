@@ -127,7 +127,7 @@ export function KPIsContent({ data }: KPIsContentProps) {
     isFiltered, filter,
     filteredRevenue, filteredUnits,
     filteredBranchRevenue, filteredDiscountKPIs,
-    filteredMarginPct, filteredGrossMargin,
+    filteredMarginPct, filteredGrossMargin, filteredMarginDataAvailable,
     filteredATV, filteredUPT, filteredTicketCount,
     filteredBranchMetrics,
     filteredTopSKUs, filteredConcentration,
@@ -160,6 +160,9 @@ export function KPIsContent({ data }: KPIsContentProps) {
   const displayUnits     = isFiltered ? filteredUnits    : data.physicalTotalUnits
   const displayMarginPct = isFiltered ? filteredMarginPct : k.margenBrutoPct
   const displayMarginAbs = isFiltered ? filteredGrossMargin : k.margenBrutoAbs
+  // false solo cuando hay filtro activo y ninguna fila del período tiene costo_unitario
+  // (p.ej. ventas cargadas por ETL, que no traen costo) — el global siempre tiene CSV histórico
+  const marginDataAvailable = isFiltered ? filteredMarginDataAvailable : true
   const displayATV       = isFiltered ? filteredATV  : k.atv
   const displayUPT       = isFiltered ? filteredUPT  : k.upt
   const displayTickets   = isFiltered ? filteredTicketCount : k.uniqueTickets
@@ -438,19 +441,31 @@ export function KPIsContent({ data }: KPIsContentProps) {
               <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">KPI 05</span>
               <p className="text-xs font-semibold text-slate-500 mt-2">Margen bruto %</p>
             </div>
-            <StatusBadge status={getMarginStatus(displayMarginPct)} label={getMarginStatus(displayMarginPct) === "green" ? "Saludable" : "Revisar"} />
+            {marginDataAvailable && (
+              <StatusBadge status={getMarginStatus(displayMarginPct)} label={getMarginStatus(displayMarginPct) === "green" ? "Saludable" : "Revisar"} />
+            )}
           </div>
-          <div>
-            <p className={`text-5xl font-bold tabular-nums ${getMarginStatus(displayMarginPct) === "green" ? "text-emerald-600" : "text-amber-600"}`}>
-              {displayMarginPct.toFixed(1)}%
-            </p>
-            <p className="text-sm text-slate-500 mt-2">
-              <span className="font-bold text-slate-800">{formatCurrency(displayMarginAbs, { compact: true })}</span> margen absoluto
-            </p>
-            <p className="text-[10px] text-slate-300 mt-3 italic border-t border-slate-50 pt-2">
-              (Ventas – Costo) / Ventas · excluye es_cortesia · solo es_bundle=false con costo
-            </p>
-          </div>
+          {marginDataAvailable ? (
+            <div>
+              <p className={`text-5xl font-bold tabular-nums ${getMarginStatus(displayMarginPct) === "green" ? "text-emerald-600" : "text-amber-600"}`}>
+                {displayMarginPct.toFixed(1)}%
+              </p>
+              <p className="text-sm text-slate-500 mt-2">
+                <span className="font-bold text-slate-800">{formatCurrency(displayMarginAbs, { compact: true })}</span> margen absoluto
+              </p>
+              <p className="text-[10px] text-slate-300 mt-3 italic border-t border-slate-50 pt-2">
+                (Ventas – Costo) / Ventas · excluye es_cortesia · solo es_bundle=false con costo
+              </p>
+            </div>
+          ) : (
+            <div>
+              <p className="text-5xl font-bold tabular-nums text-slate-300">N/A</p>
+              <p className="text-sm text-slate-500 mt-2">Sin datos de costo para este período</p>
+              <p className="text-[10px] text-slate-300 mt-3 italic border-t border-slate-50 pt-2">
+                Las ventas cargadas vía ETL desde Microsip no incluyen costo unitario
+              </p>
+            </div>
+          )}
         </motion.div>
 
         {/* Margin by branch (KPI 07) */}

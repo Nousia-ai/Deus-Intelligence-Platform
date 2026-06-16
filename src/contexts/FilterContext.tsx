@@ -24,6 +24,9 @@ interface FilterContextValue {
   filteredUnits: number
   filteredMarginPct: number
   filteredGrossMargin: number
+  // false cuando ninguna fila del período filtrado tiene costo_unitario (p.ej. ventas
+  // cargadas por ETL, que no traen costo) — evita mostrar "0%" como si fuera el margen real
+  filteredMarginDataAvailable: boolean
   filteredMonthlyRevenue: MonthlyRevenue[]
   filteredBranchRevenue: { id: string; nombre: string; revenue: number; revenueShare: number }[]
   filteredCategoryRevenue: { categoria: string; revenue: number; revenueShare: number }[]
@@ -244,7 +247,8 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
         filtGrossMarginDen += val.importe_neto
       }
     }
-    const filteredMarginPct = filtGrossMarginDen > 0 ? (filtGrossMarginNum / filtGrossMarginDen) * 100 : 0
+    const filteredMarginDataAvailable = filtGrossMarginDen > 0
+    const filteredMarginPct = filteredMarginDataAvailable ? (filtGrossMarginNum / filtGrossMarginDen) * 100 : 0
     const filteredGrossMargin = filtGrossMarginNum
 
     // ── Filtered top brands ───────────────────────────────────────────────────
@@ -462,6 +466,7 @@ export function FilterProvider({ children, data }: FilterProviderProps) {
       filteredUnits,
       filteredMarginPct,
       filteredGrossMargin,
+      filteredMarginDataAvailable,
       filteredMonthlyRevenue,
       filteredBranchRevenue,
       filteredCategoryRevenue,

@@ -20,7 +20,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
     isFiltered, filter,
     filteredRevenue, filteredUnits, filteredMonthlyRevenue,
     filteredBranchRevenue, filteredCategoryRevenue, yoyChange,
-    filteredMarginPct, filteredGrossMargin,
+    filteredMarginPct, filteredGrossMargin, filteredMarginDataAvailable,
     filteredDiscountKPIs,
     filteredTopBrands, filteredPaymentMethods, filteredGenderSplit, filteredDayOfWeek,
   } = useFilter()
@@ -102,7 +102,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
           </div>
           <div className="flex-shrink-0 text-right hidden md:block">
             <p className="text-white/40 text-xs uppercase tracking-wide mb-1">
-              {isFiltered ? "Ingreso filtrado" : "Ingreso acumulado"}
+              {isFiltered ? "Ingreso filtrado" : "Ingreso acumulado"} · tiendas físicas
             </p>
             <AnimatePresence mode="wait">
               <motion.p
@@ -127,6 +127,7 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
           value={formatCurrency(filteredRevenue, { compact: true })}
           numericValue={filteredRevenue}
           formatter={(n) => formatCurrency(n, { compact: true })}
+          subtitle="Solo tiendas físicas (excluye canales online)"
           change={yoyChange ?? undefined}
           changeLabel={yoyLabel}
           icon={DollarSign}
@@ -147,10 +148,12 @@ export function DashboardContent({ data }: { data: DashboardSummary }) {
         />
         <KPICard
           title="Margen bruto"
-          value={formatPercentAbs(filteredMarginPct)}
-          numericValue={filteredMarginPct}
-          formatter={(n) => formatPercentAbs(n)}
-          subtitle={`${formatCurrency(filteredGrossMargin, { compact: true })} generados`}
+          value={filteredMarginDataAvailable ? formatPercentAbs(filteredMarginPct) : "N/A"}
+          numericValue={filteredMarginDataAvailable ? filteredMarginPct : undefined}
+          formatter={filteredMarginDataAvailable ? (n) => formatPercentAbs(n) : undefined}
+          subtitle={filteredMarginDataAvailable
+            ? `${formatCurrency(filteredGrossMargin, { compact: true })} generados`
+            : "Sin datos de costo para este período"}
           icon={TrendingUp}
           iconColor="text-emerald-600"
           accentColor="bg-emerald-50"
