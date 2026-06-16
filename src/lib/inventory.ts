@@ -18,46 +18,74 @@ export interface AlertFilters {
   bucket?: string
 }
 
+const PAGE_SIZE = 5000
+
+/**
+ * Pagina cualquier query de Supabase para evitar el límite default de PostgREST
+ * (db-max-rows, en este proyecto 1000) que trunca silenciosamente — sin error — los
+ * resultados de tablas grandes como inventory_kpis (10,820 filas).
+ *
+ * IMPORTANTE: PostgREST aplica su tope de max_rows AUNQUE se pida un .range() mayor
+ * (p.ej. range(0,4999) devuelve solo 1000 filas, no un error). Por eso avanzamos `from`
+ * según las filas REALMENTE recibidas, no según PAGE_SIZE — y solo paramos cuando una
+ * página llega vacía.
+ */
+async function paginate<T>(
+  query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const rows: T[] = []
+  let from = 0
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
+    const { data, error } = await query(from, from + PAGE_SIZE - 1)
+    if (error) {
+      console.error("[inventory] paginate error:", error.message)
+      break
+    }
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    from += data.length
+  }
+  return rows
+}
+
 /** Todos los SKUs con alerta activa (nivel_alerta IS NOT NULL, stock > 0). */
 export async function getAlerts(filters?: AlertFilters): Promise<InventoryKPI[]> {
   if (!supabase) return []
 
-  let query = supabase
-    .from("inventory_kpis")
-    .select("*")
-    .not("nivel_alerta", "is", null)
-    .gt("inv_fin_unidades", 0)
+  return paginate<InventoryKPI>((from, to) => {
+    let query = supabase!
+      .from("inventory_kpis")
+      .select("*")
+      .not("nivel_alerta", "is", null)
+      .gt("inv_fin_unidades", 0)
 
-  if (filters?.sucursal) query = query.eq("sucursal_key", filters.sucursal)
-  if (filters?.nivel) query = query.eq("nivel_alerta", filters.nivel)
-  if (filters?.tipo_producto) query = query.eq("tipo_producto", filters.tipo_producto)
-  if (filters?.bucket) query = query.eq("bucket_aging", filters.bucket)
+    if (filters?.sucursal) query = query.eq("sucursal_key", filters.sucursal)
+    if (filters?.nivel) query = query.eq("nivel_alerta", filters.nivel)
+    if (filters?.tipo_producto) query = query.eq("tipo_producto", filters.tipo_producto)
+    if (filters?.bucket) query = query.eq("bucket_aging", filters.bucket)
 
-  const { data, error } = await query.order("valor_inv_costo", { ascending: false })
-  if (error) {
-    console.error("[inventory.getAlerts]", error.message)
-    return []
-  }
-  return (data ?? []) as InventoryKPI[]
+    return query.order("valor_inv_costo", { ascending: false }).order("id", { ascending: true }).range(from, to)
+  })
 }
 
 /** Conteo y valor agregado por nivel de alerta (para las 3 tarjetas del dashboard). */
 export async function getAlertSummary(): Promise<AlertSummary[]> {
   if (!supabase) return []
 
-  const { data, error } = await supabase
-    .from("inventory_kpis")
-    .select("nivel_alerta, sucursal_key, valor_inv_costo")
-    .not("nivel_alerta", "is", null)
-    .gt("inv_fin_unidades", 0)
-
-  if (error) {
-    console.error("[inventory.getAlertSummary]", error.message)
-    return []
-  }
+  const data = await paginate<{ nivel_alerta: string; sucursal_key: string; valor_inv_costo: number | null }>(
+    (from, to) =>
+      supabase!
+        .from("inventory_kpis")
+        .select("nivel_alerta, sucursal_key, valor_inv_costo")
+        .not("nivel_alerta", "is", null)
+        .gt("inv_fin_unidades", 0)
+        .order("id", { ascending: true })
+        .range(from, to)
+  )
 
   const map: Record<string, AlertSummary> = {}
-  for (const row of data ?? []) {
+  for (const row of data) {
     const nivel = row.nivel_alerta as AlertLevel
     if (!map[nivel]) map[nivel] = { nivel, skus: 0, valor_en_riesgo: 0, sucursales: [] }
     map[nivel].skus++
@@ -75,25 +103,27 @@ export async function getAlertSummary(): Promise<AlertSummary[]> {
 export async function getWeeksOfSupply(sucursal?: string): Promise<WeeksOfSupplyRow[]> {
   if (!supabase) return []
 
-  let query = supabase
-    .from("inventory_kpis")
-    .select("sucursal_key, sucursal_nombre, tipo_producto, weeks_of_supply")
-    .eq("es_basico", 0)
-    .eq("es_promo", 0)
-    .gt("inv_fin_unidades", 0)
-    .not("weeks_of_supply", "is", null)
-    .not("tipo_producto", "is", null)
+  const data = await paginate<{
+    sucursal_key: string
+    sucursal_nombre: string | null
+    tipo_producto: string | null
+    weeks_of_supply: number | null
+  }>((from, to) => {
+    let query = supabase!
+      .from("inventory_kpis")
+      .select("sucursal_key, sucursal_nombre, tipo_producto, weeks_of_supply")
+      .eq("es_basico", 0)
+      .eq("es_promo", 0)
+      .gt("inv_fin_unidades", 0)
+      .not("weeks_of_supply", "is", null)
+      .not("tipo_producto", "is", null)
 
-  if (sucursal) query = query.eq("sucursal_key", sucursal)
-
-  const { data, error } = await query
-  if (error) {
-    console.error("[inventory.getWeeksOfSupply]", error.message)
-    return []
-  }
+    if (sucursal) query = query.eq("sucursal_key", sucursal)
+    return query.order("id", { ascending: true }).range(from, to)
+  })
 
   const agg: Record<string, { sum: number; count: number; nombre: string | null }> = {}
-  for (const row of data ?? []) {
+  for (const row of data) {
     const key = `${row.sucursal_key}|||${row.tipo_producto}`
     if (!agg[key]) agg[key] = { sum: 0, count: 0, nombre: row.sucursal_nombre }
     agg[key].sum += row.weeks_of_supply as number
@@ -122,18 +152,26 @@ export async function getWeeksOfSupply(sucursal?: string): Promise<WeeksOfSupply
 export async function getTransferCandidates(): Promise<TransferCandidate[]> {
   if (!supabase) return []
 
-  const { data, error } = await supabase
-    .from("inventory_kpis")
-    .select(
-      "sku_padre, descripcion, marca, tipo_producto, sucursal_key, sucursal_nombre, inv_fin_unidades, perfil_demanda"
-    )
-    .not("perfil_demanda", "is", null)
-    .not("sku_padre", "is", null)
-
-  if (error) {
-    console.error("[inventory.getTransferCandidates]", error.message)
-    return []
-  }
+  const data = await paginate<{
+    sku_padre: string
+    descripcion: string | null
+    marca: string | null
+    tipo_producto: string | null
+    sucursal_key: string
+    sucursal_nombre: string | null
+    inv_fin_unidades: number | null
+    perfil_demanda: string | null
+  }>((from, to) =>
+    supabase!
+      .from("inventory_kpis")
+      .select(
+        "sku_padre, descripcion, marca, tipo_producto, sucursal_key, sucursal_nombre, inv_fin_unidades, perfil_demanda"
+      )
+      .not("perfil_demanda", "is", null)
+      .not("sku_padre", "is", null)
+      .order("id", { ascending: true })
+      .range(from, to)
+  )
 
   type SkuEntry = {
     descripcion: string | null
@@ -145,7 +183,7 @@ export async function getTransferCandidates(): Promise<TransferCandidate[]> {
 
   const skuMap: Record<string, SkuEntry> = {}
 
-  for (const row of data ?? []) {
+  for (const row of data) {
     const sku = row.sku_padre as string
     if (!skuMap[sku]) {
       skuMap[sku] = {
@@ -201,18 +239,16 @@ export async function getTransferCandidates(): Promise<TransferCandidate[]> {
 export async function getStockouts(): Promise<InventoryKPI[]> {
   if (!supabase) return []
 
-  const { data, error } = await supabase
-    .from("inventory_kpis")
-    .select("*")
-    .eq("inv_fin_unidades", 0)
-    .gt("unidades_vendidas", 0)
-    .order("velocidad_semanal", { ascending: false })
-
-  if (error) {
-    console.error("[inventory.getStockouts]", error.message)
-    return []
-  }
-  return (data ?? []) as InventoryKPI[]
+  return paginate<InventoryKPI>((from, to) =>
+    supabase!
+      .from("inventory_kpis")
+      .select("*")
+      .eq("inv_fin_unidades", 0)
+      .gt("unidades_vendidas", 0)
+      .order("velocidad_semanal", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)
+  )
 }
 
 /**
@@ -222,19 +258,18 @@ export async function getStockouts(): Promise<InventoryKPI[]> {
 export async function getReplenishmentAlerts(): Promise<InventoryKPI[]> {
   if (!supabase) return []
 
-  const { data, error } = await supabase
-    .from("inventory_kpis")
-    .select("*")
-    .eq("perfil_demanda", "RECEPTORA")
-    .gt("inv_fin_unidades", 0)
-    .not("velocidad_semanal", "is", null)
+  const data = await paginate<InventoryKPI>((from, to) =>
+    supabase!
+      .from("inventory_kpis")
+      .select("*")
+      .eq("perfil_demanda", "RECEPTORA")
+      .gt("inv_fin_unidades", 0)
+      .not("velocidad_semanal", "is", null)
+      .order("id", { ascending: true })
+      .range(from, to)
+  )
 
-  if (error) {
-    console.error("[inventory.getReplenishmentAlerts]", error.message)
-    return []
-  }
-
-  return ((data ?? []) as InventoryKPI[])
+  return data
     .filter((row) => {
       const stock = row.inv_fin_unidades ?? 0
       const vel = row.velocidad_semanal ?? 0
