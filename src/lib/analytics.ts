@@ -197,8 +197,11 @@ async function loadRawDataFromSupabase(): Promise<SalesRecord[]> {
       })
     }
 
-    if (data.length < SUPABASE_PAGE_SIZE) break
-    from += SUPABASE_PAGE_SIZE
+    // PostgREST aplica su tope de max_rows (1000 en este proyecto) AUNQUE se pida
+    // un .range() mayor — sin error, simplemente devuelve menos filas. Por eso avanzamos
+    // `from` según las filas REALMENTE recibidas, no según SUPABASE_PAGE_SIZE, y solo
+    // paramos cuando una página llega vacía.
+    from += data.length
   }
 
   console.log(`[analytics] ventas_lineas: ${rows.length} filas`)
@@ -207,11 +210,22 @@ async function loadRawDataFromSupabase(): Promise<SalesRecord[]> {
 
 /**
  * Carga ÚNICAMENTE las filas de ventas_lineas con fecha > afterDate.
- * Consulta pequeña y rápida — usada para meses más recientes que el CSV.
+ * Consulta pequeña — usada para meses más recientes que el CSV.
+ *
+ * Pagina igual que loadRawDataFromSupabase(): PostgREST limita cada respuesta a
+ * max_rows (1000 en este proyecto) sin importar el .range() solicitado, así que
+ * avanzamos `from` por filas REALMENTE recibidas y paramos solo en página vacía.
+ * Necesario aunque el dataset esperado sea "chico" — junio 2026 ya tiene 1,330 filas,
+ * por encima del límite de una sola respuesta.
  */
 async function loadRecentDataFromSupabase(afterDate: string): Promise<SalesRecord[]> {
   if (!supabase) return []
-  try {
+
+  const rows: SalesRecord[] = []
+  let from = 0
+
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop
     const { data, error } = await supabase
       .from("ventas_lineas")
       .select(
@@ -224,58 +238,65 @@ async function loadRecentDataFromSupabase(afterDate: string): Promise<SalesRecor
         "anio,mes,semana,dia_semana,costo_unitario,sucursal_id,sku_padre"
       )
       .gt("fecha", afterDate)
+      .order("id", { ascending: true })
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
 
     if (error) {
       console.warn("[analytics] loadRecent error:", error.message)
-      return []
+      break
     }
-    if (!data || data.length === 0) return []
+    if (!data || data.length === 0) break
 
-    console.log(`[analytics] ventas_lineas recientes (>${afterDate}): ${data.length} filas`)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return data.map((r: any) => ({
-      articulo:              r.articulo              ?? "",
-      marca:                 r.marca                 ?? "",
-      marca_en_canonico:     r.marca_en_canonico     ?? "",
-      tipo_producto:         r.tipo_producto          ?? "",
-      categoria_macro:       r.categoria_macro        ?? "",
-      color:                 r.color                 ?? "",
-      familia_color:         r.familia_color          ?? "",
-      talla:                 r.talla                 ?? "",
-      tipo_talla:            r.tipo_talla             ?? "",
-      genero:                r.genero                ?? "",
-      material:              r.material              ?? "",
-      corte:                 r.corte                 ?? "",
-      patron:                r.patron                ?? "",
-      sku:                   r.sku                   ?? "",
-      es_marca_propia:       r.es_marca_propia        ?? false,
-      es_multicolor:         r.es_multicolor          ?? false,
-      es_bundle:             r.es_bundle              ?? false,
-      es_cortesia:           r.es_cortesia            ?? false,
-      fecha:                 r.fecha                 ?? "",
-      tienda:                r.tienda                ?? "",
-      canal:                 r.canal                 ?? "",
-      unidades:              r.unidades              ?? 1,
-      precio_lista:          r.precio_lista           ?? 0,
-      precio_pagado:         r.precio_pagado          ?? 0,
-      pct_descuento:         r.pct_descuento          ?? 0,
-      monto_descuento:       r.monto_descuento        ?? 0,
-      tiene_descuento:       r.tiene_descuento        ?? false,
-      importe_neto:          r.importe_neto           ?? 0,
-      ticket_total:          r.ticket_total           ?? 0,
-      forma_cobro_principal: r.forma_cobro_principal  ?? "",
-      rango_precio:          r.rango_precio           ?? "",
-      año:                   r.anio                  ?? 0,
-      mes:                   r.mes                   ?? 0,
-      semana:                r.semana                ?? 0,
-      dia_semana:            r.dia_semana             ?? 0,
-      costo_unitario:        r.costo_unitario         ?? null,
-      sucursal_id:           r.sucursal_id            ?? "",
-      sku_padre:             r.sku_padre              ?? "",
-    })) as SalesRecord[]
-  } catch {
-    return []
+    for (const r of data) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const row = r as any
+      rows.push({
+        articulo:              row.articulo              ?? "",
+        marca:                 row.marca                 ?? "",
+        marca_en_canonico:     row.marca_en_canonico     ?? "",
+        tipo_producto:         row.tipo_producto          ?? "",
+        categoria_macro:       row.categoria_macro        ?? "",
+        color:                 row.color                 ?? "",
+        familia_color:         row.familia_color          ?? "",
+        talla:                 row.talla                 ?? "",
+        tipo_talla:            row.tipo_talla             ?? "",
+        genero:                row.genero                ?? "",
+        material:              row.material              ?? "",
+        corte:                 row.corte                 ?? "",
+        patron:                row.patron                ?? "",
+        sku:                   row.sku                   ?? "",
+        es_marca_propia:       row.es_marca_propia        ?? false,
+        es_multicolor:         row.es_multicolor          ?? false,
+        es_bundle:             row.es_bundle              ?? false,
+        es_cortesia:           row.es_cortesia            ?? false,
+        fecha:                 row.fecha                 ?? "",
+        tienda:                row.tienda                ?? "",
+        canal:                 row.canal                 ?? "",
+        unidades:              row.unidades              ?? 1,
+        precio_lista:          row.precio_lista           ?? 0,
+        precio_pagado:         row.precio_pagado          ?? 0,
+        pct_descuento:         row.pct_descuento          ?? 0,
+        monto_descuento:       row.monto_descuento        ?? 0,
+        tiene_descuento:       row.tiene_descuento        ?? false,
+        importe_neto:          row.importe_neto           ?? 0,
+        ticket_total:          row.ticket_total           ?? 0,
+        forma_cobro_principal: row.forma_cobro_principal  ?? "",
+        rango_precio:          row.rango_precio           ?? "",
+        año:                   row.anio                  ?? 0,
+        mes:                   row.mes                   ?? 0,
+        semana:                row.semana                ?? 0,
+        dia_semana:            row.dia_semana             ?? 0,
+        costo_unitario:        row.costo_unitario         ?? null,
+        sucursal_id:           row.sucursal_id            ?? "",
+        sku_padre:             row.sku_padre              ?? "",
+      })
+    }
+
+    from += data.length
   }
+
+  console.log(`[analytics] ventas_lineas recientes (>${afterDate}): ${rows.length} filas`)
+  return rows
 }
 
 /**
