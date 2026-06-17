@@ -15,6 +15,92 @@
 
 import * as XLSX from "xlsx"
 
+// ─── Clasificación desde texto de artículo ───────────────────────────────────
+
+// prefix en minúsculas → [color canónico, familia_color]
+const COLOR_PREFIXES: [string, string, string][] = [
+  ["negro",     "Negro",         "Negro"],
+  ["blanco",    "Blanco",        "Blanco"],
+  ["crema",     "Crema",         "Blanco"],
+  ["hueso",     "Hueso",         "Blanco"],
+  ["perla",     "Perla",         "Blanco"],
+  ["marfil",    "Marfil",        "Blanco"],
+  ["azul",      "Azul",          "Azul"],
+  ["marino",    "Marino",        "Azul"],
+  ["celeste",   "Celeste",       "Azul"],
+  ["turquesa",  "Turquesa",      "Azul"],
+  ["rojo",      "Rojo",          "Rojo"],
+  ["vino",      "Vino",          "Rojo"],
+  ["tinto",     "Tinto",         "Rojo"],
+  ["coral",     "Coral",         "Rojo/Coral"],
+  ["verde",     "Verde",         "Verde"],
+  ["olivo",     "Olivo",         "Verde"],
+  ["olive",     "Olivo",         "Verde"],
+  ["menta",     "Menta",         "Verde"],
+  ["kaki",      "Kaki",          "Verde"],
+  ["khaki",     "Kaki",          "Verde"],
+  ["cafe",      "Café",          "Café/Beige"],
+  ["café",      "Café",          "Café/Beige"],
+  ["camel",     "Camel",         "Café/Beige"],
+  ["beige",     "Beige",         "Café/Beige"],
+  ["nude",      "Nude",          "Café/Beige"],
+  ["natural",   "Natural",       "Café/Beige"],
+  ["ocre",      "Ocre",          "Café/Beige"],
+  ["palo",      "Palo de Rosa",  "Rosa/Lila"],
+  ["rosa",      "Rosa",          "Rosa/Lila"],
+  ["morado",    "Morado",        "Rosa/Lila"],
+  ["lila",      "Lila",          "Rosa/Lila"],
+  ["lavanda",   "Lavanda",       "Rosa/Lila"],
+  ["purpura",   "Púrpura",       "Rosa/Lila"],
+  ["púrpura",   "Púrpura",       "Rosa/Lila"],
+  ["naranja",   "Naranja",       "Naranja"],
+  ["salmon",    "Salmón",        "Naranja"],
+  ["salmón",    "Salmón",        "Naranja"],
+  ["terracota", "Terracota",     "Naranja/Tierra"],
+  ["amarillo",  "Amarillo",      "Amarillo"],
+  ["mostaza",   "Mostaza",       "Amarillo"],
+  ["mustaza",   "Mostaza",       "Amarillo"],
+  ["gris",      "Gris",          "Gris"],
+  ["plata",     "Plata",         "Gris"],
+  ["plateado",  "Plateado",      "Gris"],
+  ["dorado",    "Dorado",        "Dorado"],
+  ["oro",       "Oro",           "Dorado"],
+  ["multi",     "Multicolor",    "Multicolor"],
+  ["estampado", "Estampado",     "Multicolor"],
+]
+
+function detectColor(articulo: string): { color: string; familia_color: string } {
+  const words = articulo.split(/\s+/)
+  // Tokens relevantes: saltar primero (marca) y último (sku); el tipo suele ser el segundo
+  for (let i = 1; i < words.length - 1; i++) {
+    const lower = words[i].toLowerCase()
+    for (const [prefix, color, familia] of COLOR_PREFIXES) {
+      if (lower.startsWith(prefix)) {
+        return { color, familia_color: familia }
+      }
+    }
+  }
+  return { color: "", familia_color: "" }
+}
+
+function detectGenero(articulo: string): string {
+  for (const w of articulo.toLowerCase().split(/\s+/)) {
+    if (w === "dam" || w === "dama" || w === "mujer") return "Dama"
+    if (w === "cab" || w === "caballero" || w === "hombre") return "Caballero"
+    if (w === "unisex") return "Unisex"
+    if (w === "infantil" || w === "niño" || w === "niña") return "Infantil"
+  }
+  return ""
+}
+
+export function tipoTallaFromTalla(talla: string): string {
+  if (!talla) return ""
+  const u = talla.toUpperCase()
+  if (u === "UNI" || u === "UNICO" || u === "UNICA" || u === "U") return "Única"
+  if (/^\d+$/.test(talla)) return "Numérica"
+  return "Alfabética"
+}
+
 // ─── Mapeos estáticos ────────────────────────────────────────────────────────
 
 const FOLIO_SUCURSAL: Record<string, { sucursal_id: string; tienda: string; canal: string }> = {
@@ -66,6 +152,11 @@ export interface ParsedVentaRow {
   articulo: string
   sku: string          // último token de articulo (ej. "26501UNI")
   sku_padre: string    // prefijo numérico (ej. "26501")
+  talla: string
+  tipo_talla: string
+  color: string
+  familia_color: string
+  genero: string
   unidades: number
   precio_lista: number
   precio_pagado: number
@@ -84,7 +175,7 @@ export interface ParsedVentaRow {
   semana: number
   dia_semana: number   // 0=lunes … 6=domingo (convención Python)
   rango_precio: string
-  // campos enriquecibles desde inventory_kpis (vacíos al parsear)
+  // campos enriquecibles desde inventory_kpis (sobreescriben valores del parser)
   marca: string
   tipo_producto: string
   categoria_macro: string
@@ -152,12 +243,12 @@ function sucursalFromFolio(folio: string): { sucursal_id: string; tienda: string
   return { sucursal_id: "UNKNOWN", tienda: "Desconocida", canal: "físico", caja_prefix: prefix1 }
 }
 
-function skuFromArticulo(articulo: string): { sku: string; sku_padre: string } {
+function skuFromArticulo(articulo: string): { sku: string; sku_padre: string; talla: string } {
   const words = articulo.trim().split(/\s+/)
   const lastWord = words[words.length - 1] ?? ""
-  const m = lastWord.match(/^(\d+)(.+)$/)
-  if (m) return { sku: lastWord, sku_padre: m[1] }
-  return { sku: lastWord, sku_padre: lastWord }
+  const m = lastWord.match(/^(\d+)([A-Za-z0-9]+)$/)
+  if (m) return { sku: lastWord, sku_padre: m[1], talla: m[2] }
+  return { sku: lastWord, sku_padre: lastWord, talla: "" }
 }
 
 // ─── Parser principal ─────────────────────────────────────────────────────────
@@ -224,10 +315,19 @@ export function parseVentasXlsx(buffer: Buffer): ParseVentasResult {
     const pctDesc = parsePct(row[13])
     const precioPagado = unidades > 0 ? importeNeto / unidades : precioLista
     const montoDesc = Math.max(0, precioLista * unidades - importeNeto)
-    const { sku, sku_padre } = skuFromArticulo(col1Str)
+    const { sku, sku_padre, talla } = skuFromArticulo(col1Str)
     const { sucursal_id, tienda, canal, caja_prefix } = sucursalFromFolio(currentFolio)
     const anio = parseInt(currentFecha.slice(0, 4))
     const mes = parseInt(currentFecha.slice(5, 7))
+    const { color, familia_color } = detectColor(col1Str)
+    const genero = detectGenero(col1Str)
+    // Marca = primera palabra del artículo; tipo = segunda (fallbacks, inventory_kpis los sobreescribe)
+    const palabras = col1Str.split(/\s+/)
+    const marcaDefault = palabras[0] ?? ""
+    const tipoRaw = palabras[1] ?? ""
+    const tipoDefault = Object.keys(TIPO_CATEGORIA).find(
+      k => k.toLowerCase() === tipoRaw.toLowerCase()
+    ) ?? tipoRaw
 
     result.push({
       fecha: currentFecha,
@@ -235,6 +335,11 @@ export function parseVentasXlsx(buffer: Buffer): ParseVentasResult {
       articulo: col1Str,
       sku,
       sku_padre,
+      talla,
+      tipo_talla: tipoTallaFromTalla(talla),
+      color,
+      familia_color,
+      genero,
       unidades,
       precio_lista: precioLista,
       precio_pagado: precioPagado,
@@ -253,10 +358,9 @@ export function parseVentasXlsx(buffer: Buffer): ParseVentasResult {
       semana: isoWeek(currentFecha),
       dia_semana: dayOfWeek(currentFecha),
       rango_precio: rangoFromPrecio(precioPagado),
-      // enriched later
-      marca: "",
-      tipo_producto: "",
-      categoria_macro: "",
+      marca: marcaDefault,
+      tipo_producto: tipoDefault,
+      categoria_macro: TIPO_CATEGORIA[tipoDefault] ?? "Otro",
     })
   }
 

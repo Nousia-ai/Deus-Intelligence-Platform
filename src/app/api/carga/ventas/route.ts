@@ -33,6 +33,7 @@ interface ProductInfo {
   marca: string
   tipo_producto: string
   categoria_macro: string
+  talla: string
 }
 
 async function enrichFromInventory(skus: string[]): Promise<Map<string, ProductInfo>> {
@@ -45,7 +46,7 @@ async function enrichFromInventory(skus: string[]): Promise<Map<string, ProductI
   for (const batch of batches) {
     const { data } = await supabase
       .from("inventory_kpis")
-      .select("codigo,marca,tipo_producto")
+      .select("codigo,marca,tipo_producto,talla")
       .in("codigo", batch)
 
     for (const row of data ?? []) {
@@ -55,6 +56,7 @@ async function enrichFromInventory(skus: string[]): Promise<Map<string, ProductI
           marca: row.marca ?? "",
           tipo_producto: tipo,
           categoria_macro: TIPO_CATEGORIA[tipo] ?? "Otro",
+          talla: row.talla ?? "",
         })
       }
     }
@@ -146,9 +148,10 @@ export async function POST(request: Request) {
     for (const row of parsed.rows) {
       const info = productMap.get(row.sku)
       if (info) {
-        row.marca = info.marca
-        row.tipo_producto = info.tipo_producto
-        row.categoria_macro = info.categoria_macro
+        if (info.marca)          row.marca = info.marca
+        if (info.tipo_producto)  row.tipo_producto = info.tipo_producto
+        if (info.categoria_macro) row.categoria_macro = info.categoria_macro
+        if (info.talla)          row.talla = info.talla
       }
     }
 
@@ -178,8 +181,10 @@ export async function POST(request: Request) {
         marca_en_canonico: r.marca,
         tipo_producto: r.tipo_producto,
         categoria_macro: r.categoria_macro,
-        color: "", familia_color: "", talla: "", tipo_talla: "",
-        genero: "", detalles: "", material: "", corte: "", patron: "", sku: r.sku,
+        color: r.color, familia_color: r.familia_color,
+        talla: r.talla, tipo_talla: r.tipo_talla,
+        genero: r.genero,
+        detalles: "", material: "", corte: "", patron: "", sku: r.sku,
         es_marca_propia: false, es_multicolor: false, es_bundle: false, es_cortesia: false,
         manga: "", cuello: "", linea: "", detalles_extra: "",
         tiene_corte: false, tiene_material: false, tiene_manga: false,
