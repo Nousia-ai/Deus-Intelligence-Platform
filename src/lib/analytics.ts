@@ -54,17 +54,19 @@ const BRANCH_INFO: Record<string, { nombre: string; tipo: string }> = {
 
 const PHYSICAL_BRANCHES = ["16S001", "ATL001", "CSU001", "CHO001", "CRZ001", "SND001"]
 
-let cachedData: SalesRecord[] | null = null
+let cachedCsvData: SalesRecord[] | null = null  // datos CSV puros, nunca se mezclan con Supabase
+let cachedData: SalesRecord[] | null = null       // híbrido: CSV + recientes de Supabase
 let cachedSummary: DashboardSummary | null = null
 
 // Fecha máxima cubierta por df_ventas_v4.csv  (Apr 2023 – May 2026).
 // Ventas con fecha POSTERIOR a esta constante provienen de ETL y se leen desde ventas_lineas.
 const CSV_MAX_DATE = "2026-05-31"
 
-function loadRawData(): SalesRecord[] {
-  if (cachedData) return cachedData
+// Carga SOLO el CSV. Nunca toca cachedData (híbrido).
+// computeDashboardSummaryAsync() usa esta función para evitar duplicar datos de Supabase.
+function loadCsvData(): SalesRecord[] {
+  if (cachedCsvData) return cachedCsvData
 
-  // src/data/ is NOT served as a static web asset (unlike public/)
   const filePath = path.join(process.cwd(), "src", "data", "df_ventas_v4.csv")
   const fileContent = fs.readFileSync(filePath, "utf-8")
 
@@ -74,7 +76,7 @@ function loadRawData(): SalesRecord[] {
     dynamicTyping: false,
   })
 
-  cachedData = (result.data as Record<string, string>[]).map((row) => ({
+  cachedCsvData = (result.data as Record<string, string>[]).map((row) => ({
     articulo: row.articulo || "",
     marca: row.marca || "",
     marca_en_canonico: row.marca_en_canonico || "",
@@ -115,7 +117,14 @@ function loadRawData(): SalesRecord[] {
     sku_padre: row.sku_padre || "",
   }))
 
-  return cachedData
+  return cachedCsvData
+}
+
+// Devuelve los datos híbridos si ya están en caché; si no, cae a CSV puro.
+// computeDashboardSummary() usa esta función para acceder a cachedData (CSV+recientes).
+function loadRawData(): SalesRecord[] {
+  if (cachedData) return cachedData
+  return loadCsvData()
 }
 
 // ── Supabase ventas_lineas loader ──────────────────────────────────────────────
@@ -1118,7 +1127,7 @@ export async function computeDashboardSummaryAsync(): Promise<DashboardSummary> 
   //   - Supabase   → solo filas con fecha > CSV_MAX_DATE (Jun 2026+, consulta pequeña)
   // Este enfoque garantiza que el historial siempre esté disponible aunque ventas_lineas
   // esté vacío o parcialmente corrompido.
-  const csvData  = loadRawData()
+  const csvData  = loadCsvData()   // siempre CSV puro — evita duplicar datos de Supabase
   const recent   = await loadRecentDataFromSupabase(CSV_MAX_DATE)
   const allData  = recent.length > 0 ? [...csvData, ...recent] : csvData
   console.log(`[analytics] híbrido: ${csvData.length} CSV + ${recent.length} Supabase recientes`)
