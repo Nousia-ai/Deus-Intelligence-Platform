@@ -98,6 +98,7 @@ export function tipoTallaFromTalla(talla: string): string {
   const u = talla.toUpperCase()
   if (u === "UNI" || u === "UNICO" || u === "UNICA" || u === "U") return "Única"
   if (/^\d+$/.test(talla)) return "Numérica"
+  if (/^T\d+$/i.test(talla)) return "Numérica"  // T28, T30, T03, T05…
   return "Alfabética"
 }
 
