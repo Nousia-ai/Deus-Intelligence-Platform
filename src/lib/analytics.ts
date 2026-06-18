@@ -38,6 +38,7 @@ import type {
   CEOKPIs,
 } from "./types"
 import { MONTH_LABELS_ES, DAY_LABELS_ES, calcChange } from "./utils"
+import { tipoTallaFromTalla } from "./etl/ventas-parser"
 
 const BRANCH_INFO: Record<string, { nombre: string; tipo: string }> = {
   "16S001": { nombre: "16 de Septiembre", tipo: "física" },
@@ -601,8 +602,8 @@ export function computeDashboardSummary(): DashboardSummary {
     cSlot[col].rev += r.importe_neto
     cSlot[col].units += r.unidades
 
-    // Size matrix (tipo_talla → talla)
-    const tipTalla = r.tipo_talla || "Otro"
+    // Size matrix (tipo_talla → talla) — re-derive from talla value to fix legacy "Alfabética" for T-números
+    const tipTalla = tipoTallaFromTalla(r.talla) || r.tipo_talla || "Otro"
     const tall = r.talla || "Sin talla"
     if (!branchMonthSizeMatrix[r.sucursal_id]) branchMonthSizeMatrix[r.sucursal_id] = {}
     if (!branchMonthSizeMatrix[r.sucursal_id][key]) branchMonthSizeMatrix[r.sucursal_id][key] = {}
