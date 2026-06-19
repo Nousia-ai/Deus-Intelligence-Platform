@@ -9,7 +9,15 @@ import type {
   AlertSummary,
   TransferCandidate,
   WeeksOfSupplyRow,
+  SellThroughRow,
+  SellThroughBySucursal,
 } from "./types"
+
+export type { SellThroughRow, SellThroughBySucursal }
+
+const PHYSICAL_BRANCH_KEYS = new Set([
+  "16S", "atlx", "cs", "chol", "czsr", "sd",
+])
 
 export interface AlertFilters {
   sucursal?: string
@@ -280,4 +288,106 @@ export async function getReplenishmentAlerts(): Promise<InventoryKPI[]> {
       const wosB = (b.inv_fin_unidades ?? 0) / (b.velocidad_semanal ?? 1)
       return wosA - wosB
     })
+}
+
+type STRawRow = {
+  sku_padre: string | null
+  sucursal_key: string
+  unidades_vendidas: number | null
+  inv_fin_unidades: number | null
+  descripcion: string | null
+  marca: string | null
+  tipo_producto: string | null
+}
+
+/**
+ * Matriz de sell-through por SKU padre × sucursal física.
+ * Agrega todas las tallas de un mismo sku_padre en cada sucursal:
+ *   ST = SUM(unidades_vendidas) / SUM(inv_ini_unidades)
+ *
+ * Fetches the 6 physical branches in PARALLEL to avoid 11+ sequential round-trips
+ * (each branch has ≈1,800 rows → 2 pages max → total wall time ≈ 2 × one call).
+ */
+export async function getSellThroughMatrix(): Promise<SellThroughRow[]> {
+  if (!supabase) return []
+
+  const SUCURSALES = Array.from(PHYSICAL_BRANCH_KEYS)
+
+  const perBranch = await Promise.all(
+    SUCURSALES.map((suc) =>
+      paginate<STRawRow>((from, to) =>
+        supabase!
+          .from("inventory_kpis")
+          .select(
+            "sku_padre, sucursal_key, unidades_vendidas, inv_fin_unidades, descripcion, marca, tipo_producto"
+          )
+          .eq("sucursal_key", suc)
+          .not("sku_padre", "is", null)
+          .or("inv_fin_unidades.gt.0,unidades_vendidas.gt.0")
+          .order("id", { ascending: true })
+          .range(from, to)
+      )
+    )
+  )
+
+  const data: STRawRow[] = perBranch.flat()
+
+  type AggEntry = {
+    descripcion: string | null
+    marca: string | null
+    tipo_producto: string | null
+    bySucursal: Record<string, { vendidas: number; fin: number }>
+  }
+
+  const skuMap: Record<string, AggEntry> = {}
+
+  for (const row of data) {
+    if (!PHYSICAL_BRANCH_KEYS.has(row.sucursal_key)) continue
+    const sku = row.sku_padre as string
+    if (!skuMap[sku]) {
+      skuMap[sku] = {
+        descripcion: row.descripcion,
+        marca: row.marca,
+        tipo_producto: row.tipo_producto,
+        bySucursal: {},
+      }
+    }
+    const s = row.sucursal_key
+    if (!skuMap[sku].bySucursal[s]) skuMap[sku].bySucursal[s] = { vendidas: 0, fin: 0 }
+    skuMap[sku].bySucursal[s].vendidas += row.unidades_vendidas ?? 0
+    skuMap[sku].bySucursal[s].fin += row.inv_fin_unidades ?? 0
+  }
+
+  return Object.entries(skuMap)
+    .map(([sku_padre, v]) => {
+      const by_sucursal: SellThroughBySucursal[] = Object.entries(v.bySucursal).map(
+        ([sucursal_key, agg]) => {
+          // denominador = vendidas + inv_fin = inv_ini + entradas (conservación de inventario)
+          // correcto para artículos traspasados (inv_ini = 0 pero entradas > 0)
+          const denominator = agg.vendidas + agg.fin
+          return {
+            sucursal_key,
+            unidades_vendidas: agg.vendidas,
+            inv_fin_unidades: agg.fin,
+            sell_through: denominator > 0 ? agg.vendidas / denominator : 0,
+          }
+        }
+      )
+
+      const totalVendidas = by_sucursal.reduce((s, r) => s + r.unidades_vendidas, 0)
+      const totalFin = by_sucursal.reduce((s, r) => s + r.inv_fin_unidades, 0)
+      const totalDenominator = totalVendidas + totalFin
+
+      return {
+        sku_padre,
+        descripcion: v.descripcion,
+        marca: v.marca,
+        tipo_producto: v.tipo_producto,
+        avg_sell_through: totalDenominator > 0 ? totalVendidas / totalDenominator : 0,
+        total_vendidas: totalVendidas,
+        total_ini: totalFin,
+        by_sucursal,
+      } satisfies SellThroughRow
+    })
+    .sort((a, b) => b.avg_sell_through - a.avg_sell_through)
 }

@@ -14,6 +14,7 @@ import {
   Target,
   Zap,
   Upload,
+  Lightbulb,
   ChevronLeft,
   PanelLeftOpen,
 } from "lucide-react"
@@ -55,6 +56,12 @@ const NAV_ITEMS = [
     icon: BarChart3,
     label: "Inventario",
     sublabel: "Salud del stock",
+  },
+  {
+    href: "/insights",
+    icon: Lightbulb,
+    label: "Insights",
+    sublabel: "Sell-through y análisis",
   },
   {
     href: "/decisiones",

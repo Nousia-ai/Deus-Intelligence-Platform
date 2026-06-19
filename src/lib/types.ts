@@ -231,6 +231,25 @@ export interface CEOKPIs {
   top20Concentration: number
 }
 
+// ── Sell-through matrix types (Insights page) ────────────────────────────────
+export interface SellThroughBySucursal {
+  sucursal_key: string
+  unidades_vendidas: number
+  inv_fin_unidades: number  // stock restante; denominador real = vendidas + fin (= ini + entradas)
+  sell_through: number  // vendidas / (vendidas + fin); correcto para artículos traspasados
+}
+
+export interface SellThroughRow {
+  sku_padre: string
+  descripcion: string | null
+  marca: string | null
+  tipo_producto: string | null
+  avg_sell_through: number  // weighted across all physical branches
+  total_vendidas: number
+  total_ini: number
+  by_sucursal: SellThroughBySucursal[]
+}
+
 // ── Inventory KPI types (inventory_kpis table) ────────────────────────────────
 export type AlertLevel = 'ROJA' | 'NARANJA' | 'AMARILLA'
 export type DemandProfile = 'DONANTE' | 'NEUTRAL' | 'RECEPTORA'
