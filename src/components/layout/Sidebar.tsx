@@ -15,6 +15,8 @@ import {
   Zap,
   Upload,
   Lightbulb,
+  MessageSquare,
+  LogOut,
   ChevronLeft,
   PanelLeftOpen,
 } from "lucide-react"
@@ -80,6 +82,12 @@ const NAV_ITEMS = [
     icon: Upload,
     label: "Carga de Datos",
     sublabel: "ETL desde Microsip ERP",
+  },
+  {
+    href: "/chat",
+    icon: MessageSquare,
+    label: "Asistente",
+    sublabel: "Chat con IA",
   },
 ]
 
@@ -222,6 +230,17 @@ export function Sidebar() {
             Abr 2023 – May 2026
           </p>
         </div>
+
+        {/* Logout */}
+        <form action="/api/auth/signout" method="POST">
+          <button
+            type="submit"
+            className="w-full flex items-center justify-center gap-2 rounded-[7px] px-2.5 py-2 text-white/25 hover:text-red-400/70 hover:bg-red-500/[0.06] transition-all duration-150 group mb-1"
+          >
+            <LogOut className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="text-[11px] font-medium whitespace-nowrap">Cerrar sesión</span>
+          </button>
+        </form>
 
         <button
           onClick={toggle}
