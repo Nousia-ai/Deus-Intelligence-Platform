@@ -447,13 +447,29 @@ async function executeGetInventarioAlertas(args: { sucursal?: string; nivel_aler
     query = query.eq("nivel_alerta", args.nivel_alerta)
   }
 
-  const { data, error } = await query
+  const { data: rawData, error } = await query
   if (error) return { error: error.message }
-  if (!data?.length) return { mensaje: "No se encontraron registros con esos filtros." }
+  if (!rawData?.length) return { mensaje: "No se encontraron registros con esos filtros." }
+
+  type AlertRow = {
+    sucursal_nombre: string | null
+    sucursal_key: string | null
+    nivel_alerta: string | null
+    bucket_aging: string | null
+    weeks_of_supply: number | null
+    sku_padre: string | null
+    descripcion: string | null
+    marca: string | null
+    tipo_producto: string | null
+    unidades_disponibles: number | null
+    sell_through: number | null
+    demand_index: number | null
+  }
+  const data = rawData as unknown as AlertRow[]
 
   // Aggregate by sucursal × nivel_alerta
   const resumen: Record<string, Record<string, number>> = {}
-  const criticas: typeof data = []
+  const criticas: AlertRow[] = []
 
   for (const row of data) {
     const suc = row.sucursal_nombre ?? row.sucursal_key ?? "Desconocida"
