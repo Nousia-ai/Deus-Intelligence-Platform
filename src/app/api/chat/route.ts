@@ -557,7 +557,8 @@ export async function POST(req: NextRequest) {
   }
 
   const openai = new OpenAI({ apiKey })
-  const { messages } = await req.json()
+  const { messages, model: requestedModel } = await req.json()
+  const model = requestedModel === "gpt-5.4-mini" ? "gpt-5.4-mini" : "gpt-5.4"
 
   const encoder = new TextEncoder()
 
@@ -574,7 +575,7 @@ export async function POST(req: NextRequest) {
           const isLastIter = iter === 4
 
           const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model,
             messages: msgs,
             tools: isLastIter ? undefined : tools,
             stream: true,

@@ -95,6 +95,31 @@ chat_messages  (id uuid PK, session_id FK → chat_sessions cascade, role, conte
 
 ---
 
+## 2026-06-28 — Selector de modelo + fix persistencia de sesiones
+
+### Modelo actualizado
+- **Antes:** `gpt-4o-mini`
+- **Migración probada:** `gpt-4o-mini` → `gpt-5.4-mini` (mediocre) → `gpt-5.4` (definitivo)
+
+### Selector de modelo en UI
+- Toggle pill en el header del chat: **5.4 mini** / **5.4** — por defecto `gpt-5.4`
+- Se desactiva mientras streaming está activo
+- El modelo se pasa en el body del request `{ messages, model }`; el backend lo valida con allowlist
+
+### Archivos modificados
+| Archivo | Cambio |
+|---|---|
+| `src/app/api/chat/route.ts` | Desestructura `model` del body · lo pasa a `openai.chat.completions.create()` |
+| `src/app/(dashboard)/chat/ChatInterface.tsx` | Estado `model`, toggle en header, `model` en fetch body, dep array corregido |
+| `src/lib/supabase.ts` | Workaround Windows: lee `.env.local` directamente con `fs.readFileSync` antes de `process.env` |
+
+### Bug corregido — persistencia de sesiones (Windows env var)
+- **Causa:** `supabase.ts` inicializaba el cliente con `process.env` en tiempo de carga del módulo. En Windows, las vars de sistema sobreescriben `.env.local` antes de que Next.js las cargue → Supabase quedaba `null` → sesiones fallaban silenciosamente (panel vacío).
+- **Fix:** mismo workaround del chat route — `fs.readFileSync(".env.local")` con prioridad sobre `process.env`.
+- **Bug secundario:** `model` faltaba en el dep array del `useCallback` de `submit` → stale closure al cambiar modelo mid-conversación. Corregido.
+
+---
+
 ## Datos del negocio (contexto para el LLM)
 
 | Parámetro | Valor |

@@ -5,6 +5,10 @@ import { Send, Bot, User, Sparkles, RefreshCw } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { SessionPanel, type ChatSession } from "./SessionPanel"
+import { cn } from "@/lib/utils"
+
+type ChatModel = "gpt-5.4-mini" | "gpt-5.4"
+const MODEL_LABELS: Record<ChatModel, string> = { "gpt-5.4-mini": "5.4 mini", "gpt-5.4": "5.4" }
 
 interface Message {
   role: "user" | "assistant"
@@ -116,6 +120,7 @@ export function ChatInterface() {
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
   const [loadingText, setLoadingText] = useState(LOADING_TEXTS[0])
+  const [model, setModel] = useState<ChatModel>("gpt-5.4")
 
   // Session state
   const [sessions, setSessions] = useState<ChatSession[]>([])
@@ -223,7 +228,7 @@ export function ChatInterface() {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: [...messages, userMsg] }),
+          body: JSON.stringify({ messages: [...messages, userMsg], model }),
           signal: abortRef.current.signal,
         })
 
@@ -268,7 +273,7 @@ export function ChatInterface() {
         setTimeout(() => inputRef.current?.focus(), 50)
       }
     },
-    [input, messages, streaming, sessionId]
+    [input, messages, streaming, sessionId, model]
   )
 
   const retry = useCallback(() => {
@@ -314,11 +319,25 @@ export function ChatInterface() {
               Pregunta sobre ventas, inventario, sucursales y más
             </p>
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            <span className="text-[10px] font-semibold text-[#9a9690] tracking-wide uppercase">
-              GPT-4o mini
-            </span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+            <div className="flex items-center bg-black/[0.05] rounded-lg p-0.5">
+              {(["gpt-5.4-mini", "gpt-5.4"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setModel(m)}
+                  disabled={streaming}
+                  className={cn(
+                    "text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all duration-150",
+                    model === m
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "text-[#9a9690] hover:text-[#4a4742] disabled:cursor-not-allowed"
+                  )}
+                >
+                  {MODEL_LABELS[m]}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
