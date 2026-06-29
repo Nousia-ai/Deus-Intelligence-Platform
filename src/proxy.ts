@@ -1,8 +1,8 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
-export async function middleware(request: NextRequest) {
-  // Si las variables de auth no están configuradas en Vercel todavía, pasar sin bloquear
+export async function proxy(request: NextRequest) {
+  // Si las variables de auth no están configuradas, pasar sin bloquear
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
     return NextResponse.next()
   }
