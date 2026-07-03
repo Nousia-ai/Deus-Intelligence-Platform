@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server"
 import OpenAI from "openai"
 import { computeDashboardSummary } from "@/lib/analytics"
+import { getSellThroughMatrix } from "@/lib/inventory"
+import { getAllTransferRecommendations } from "@/lib/transfers"
 import { supabase } from "@/lib/supabase"
 
 export const runtime = "nodejs"
@@ -17,6 +19,17 @@ const BRANCH_NAMES: Record<string, string> = {
 
 const PHYSICAL_BRANCHES = ["16S001", "ATL001", "CSU001", "CHO001", "CRZ001", "SND001"]
 const MONTH_LABELS = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+
+// inventory_kpis usa sus propias claves de sucursal (16S, atlx, cs, chol, czsr, sd) —
+// distintas de PHYSICAL_BRANCHES/BRANCH_NAMES que usa el motor de analytics (ventas).
+const INVENTORY_BRANCH_NAMES: Record<string, string> = {
+  "16S": "16 de Septiembre",
+  atlx: "Atlixco",
+  cs: "Centro Sur",
+  chol: "Cholula",
+  czsr: "Cruz del Sur",
+  sd: "San Diego",
+}
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
 
@@ -124,6 +137,24 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             type: "string",
             enum: ["ROJA", "NARANJA", "AMARILLA"],
             description: "Filtrar por nivel de alerta.",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recomendaciones_traspaso",
+      description:
+        "Genera una lista priorizada de traspasos de mercancía recomendados entre sucursales. Compara el sell-through (qué % del inventario se vendió) del mismo producto en distintas sucursales y sugiere mover piezas de donde vende mal hacia donde vende bien. Usar para preguntas como 'qué traspasos debo hacer', 'dame una lista de traspasos para este mes', 'qué mercancía debería redistribuir entre tiendas'.",
+      parameters: {
+        type: "object",
+        properties: {
+          limite: { type: "number", description: "Número de traspasos a mostrar (default 20, máx 50)." },
+          sucursal: {
+            type: "string",
+            description: "Filtrar traspasos que involucren esta sucursal, como origen o destino (ej. 'Cholula'). Omitir para todas.",
           },
         },
       },
@@ -501,6 +532,44 @@ async function executeGetInventarioAlertas(args: { sucursal?: string; nivel_aler
   }
 }
 
+async function executeGetRecomendacionesTraspaso(args: { limite?: number; sucursal?: string }) {
+  const rows = await getSellThroughMatrix()
+  if (rows.length === 0) return { error: "No hay datos de inventario disponibles." }
+
+  let recs = getAllTransferRecommendations(rows)
+
+  if (args.sucursal) {
+    const normalized = args.sucursal.toLowerCase().replace(/\s+/g, "")
+    const key = SUCURSAL_KEY_MAP[normalized] ?? SUCURSAL_KEY_MAP[args.sucursal.toLowerCase()] ?? args.sucursal
+    recs = recs.filter((r) => r.from_sucursal === key || r.to_sucursal === key)
+  }
+
+  if (recs.length === 0) {
+    return { mensaje: "No se identificaron traspasos recomendados con esos filtros." }
+  }
+
+  const limite = Math.min(args.limite ?? 20, 50)
+  const top = recs.slice(0, limite)
+
+  return {
+    total_traspasos_identificados: recs.length,
+    mostrando: top.length,
+    traspasos: top.map((r) => ({
+      sku: r.sku_padre,
+      descripcion: r.descripcion,
+      marca: r.marca,
+      de: INVENTORY_BRANCH_NAMES[r.from_sucursal] ?? r.from_sucursal,
+      a: INVENTORY_BRANCH_NAMES[r.to_sucursal] ?? r.to_sucursal,
+      piezas: r.quantity,
+      sell_through_origen: `${(r.from_sell_through * 100).toFixed(0)}%`,
+      sell_through_destino: `${(r.to_sell_through * 100).toFixed(0)}%`,
+      confianza: r.confidence,
+    })),
+    metodologia:
+      "Se compara el sell-through del mismo SKU entre sucursales. Se sugiere traspaso cuando una sucursal vende ese producto ≥30 puntos porcentuales peor que otra sucursal. La cantidad se calcula redistribuyendo el stock combinado en proporción a la demanda ya demostrada (unidades vendidas) en cada sucursal, reteniendo stock mínimo de seguridad en el origen si ese producto aún tiene alguna venta ahí.",
+  }
+}
+
 // ── System prompt ─────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Eres el asesor de negocio personal de Germán, CEO de Deus Store — una cadena de moda con 6 sucursales físicas en Puebla, México: 16 de Septiembre, Atlixco, Centro Sur, Cholula, Cruz del Sur y San Diego.
@@ -517,7 +586,7 @@ REGLAS DE COMUNICACIÓN:
 - Responde SIEMPRE en español.
 - Cuando uses términos técnicos de BI, explícalos en paréntesis la primera vez. Ejemplos: "sell-through (qué porcentaje del inventario se vendió)", "ATV (ticket promedio por compra)", "margen bruto (lo que queda después de descontar el costo del producto)".
 - Usa $ y millones (M) para dinero. Ej: $3.2M MXN.
-- Si una tabla tiene más de 6 filas, muestra las más importantes y menciona que hay más datos disponibles.
+- Si una tabla tiene más de 6 filas, muestra las más importantes y menciona que hay más datos disponibles — EXCEPTO cuando el usuario pida explícitamente una cantidad (ej. "dame 20 traspasos"), en cuyo caso muestra la cantidad completa solicitada.
 - Sé conciso: máximo 150 palabras por respuesta, excluyendo tablas.
 - Nunca inventes cifras. Si los datos no están disponibles, dilo claramente.
 - Si la pregunta es ambigua (por ejemplo "¿cómo vamos?"), asume que se refiere al mes/año más reciente disponible y menciona el período que estás mostrando.
@@ -658,6 +727,11 @@ export async function POST(req: NextRequest) {
                 case "get_inventario_alertas":
                   result = await executeGetInventarioAlertas(
                     fnArgs as { sucursal?: string; nivel_alerta?: string }
+                  )
+                  break
+                case "get_recomendaciones_traspaso":
+                  result = await executeGetRecomendacionesTraspaso(
+                    fnArgs as { limite?: number; sucursal?: string }
                   )
                   break
                 default:

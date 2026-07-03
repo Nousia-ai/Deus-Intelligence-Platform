@@ -250,6 +250,22 @@ export interface SellThroughRow {
   by_sucursal: SellThroughBySucursal[]
 }
 
+// ── Transfer recommendation types (donor→receiver rebalancing) ───────────────
+export interface TransferRecommendation {
+  sku_padre: string
+  descripcion: string | null
+  marca: string | null
+  tipo_producto: string | null
+  from_sucursal: string
+  to_sucursal: string
+  from_sell_through: number
+  to_sell_through: number
+  quantity: number
+  from_stock_after: number
+  confidence: 'alta' | 'media' | 'baja'
+  impact_score: number  // quantity × ST gap, para priorizar/ordenar
+}
+
 // ── Inventory KPI types (inventory_kpis table) ────────────────────────────────
 export type AlertLevel = 'ROJA' | 'NARANJA' | 'AMARILLA'
 export type DemandProfile = 'DONANTE' | 'NEUTRAL' | 'RECEPTORA'
